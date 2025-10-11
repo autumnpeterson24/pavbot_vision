@@ -1,0 +1,14 @@
+lane_detector:
+  ros__parameters:
+    camera_topic: /camera/image_raw
+    path_frame: base_link
+    roi_top_frac: 0.35
+    mppx: 0.025
+    mppy: 0.025
+
+mock_camera:
+  ros__parameters:
+    video_path: "/home/jetson/Videos/RightWhiteLane.mp4"  
+    fps: 30.0
+    loop: true
+    frame_id: "camera_optical_frame"
