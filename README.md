@@ -32,7 +32,7 @@ I want to add Gazebo implementation as well.
 Install (if not already):
 ```bash
 sudo apt install ros-humble-image-transport ros-humble-cv-bridge
-
+```
 ---
 ## Build Instructions
 cd ~/ros2_ws/src
@@ -50,4 +50,3 @@ ros2 launch lane_lab offline_lane_demo.launch.py mock_camera.video_path:=/home/j
 
 ## Visualize in RViz
 rviz2 -d ~/ros2_ws/src/lane_lab/config/lane_view.rviz
-
