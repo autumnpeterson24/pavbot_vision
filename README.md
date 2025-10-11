@@ -4,7 +4,8 @@ This package implements a **prototype lane detection system** for the PAVbot pla
 
 It processes video or live camera data using OpenCV and publishes lane centerlines as ROS 2 topics that can be used for autonomous navigation.
 
-*Still need to refine the poses and coordinate publishing to make sure the coordinates are actually correct within the world space and 
+**FUTURE UPDATES**
+Still need to refine the poses and coordinate publishing to make sure the coordinates are actually correct within the world space and 
 I want to add Gazebo implementation as well.
 
 ---
