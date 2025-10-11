@@ -48,7 +48,7 @@ sudo apt update
 # Full desktop (rviz2, tools, colcon, etc.)
 sudo apt install -y ros-humble-desktop
 
-# Extra packages used by your repo
+# Extra packages used by the repo
 sudo apt install -y ros-humble-image-transport ros-humble-cv-bridge \
                     ros-humble-camera-info-manager ros-humble-rviz2 \
                     libopencv-dev v4l-utils
