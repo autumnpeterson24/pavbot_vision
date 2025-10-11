@@ -46,9 +46,13 @@ source install/setup.bash
 ---
 
 ## Run the offline Demo
+```bash
 ros2 launch lane_lab offline_lane_demo.launch.py mock_camera.video_path:=/home/jetson/Videos/lanes_demo.mp4
+```
 
 ---
 
 ## Visualize in RViz
+```bash
 rviz2 -d ~/ros2_ws/src/lane_lab/config/lane_view.rviz
+```
