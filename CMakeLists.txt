@@ -44,5 +44,10 @@ install(TARGETS
 install(DIRECTORY launch config
   DESTINATION share/${PROJECT_NAME}
 )
+# Install launch, config, and media 
+install(DIRECTORY launch config media
+  DESTINATION share/${PROJECT_NAME}
+)
+
 
 ament_package()

@@ -1,0 +1,27 @@
+[0.024s] Invoking command in '/home/jetson/ros2_ws/src/lane_lab/build/lane_lab': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/home/jetson/yahboom_ws/install/camera:/opt/ros/humble /usr/bin/cmake --build /home/jetson/ros2_ws/src/lane_lab/build/lane_lab -- -j6 -l6
+[0.147s] [ 75%] Built target lane_detector
+[0.147s] [100%] Built target mock_camera
+[0.177s] Invoked command in '/home/jetson/ros2_ws/src/lane_lab/build/lane_lab' returned '0': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/home/jetson/yahboom_ws/install/camera:/opt/ros/humble /usr/bin/cmake --build /home/jetson/ros2_ws/src/lane_lab/build/lane_lab -- -j6 -l6
+[0.197s] Invoking command in '/home/jetson/ros2_ws/src/lane_lab/build/lane_lab': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/home/jetson/yahboom_ws/install/camera:/opt/ros/humble /usr/bin/cmake --install /home/jetson/ros2_ws/src/lane_lab/build/lane_lab
+[0.212s] -- Install configuration: ""
+[0.213s] -- Execute custom install script
+[0.213s] -- Up-to-date symlink: /home/jetson/ros2_ws/src/lane_lab/install/lane_lab/lib/lane_lab/mock_camera
+[0.214s] -- Up-to-date symlink: /home/jetson/ros2_ws/src/lane_lab/install/lane_lab/lib/lane_lab/lane_detector
+[0.214s] -- Up-to-date symlink: /home/jetson/ros2_ws/src/lane_lab/install/lane_lab/share/lane_lab/launch/offline_lane_demo.launch.py
+[0.215s] -- Up-to-date symlink: /home/jetson/ros2_ws/src/lane_lab/install/lane_lab/share/lane_lab/config/lane.yaml
+[0.215s] -- Up-to-date symlink: /home/jetson/ros2_ws/src/lane_lab/install/lane_lab/share/ament_index/resource_index/package_run_dependencies/lane_lab
+[0.216s] -- Up-to-date symlink: /home/jetson/ros2_ws/src/lane_lab/install/lane_lab/share/ament_index/resource_index/parent_prefix_path/lane_lab
+[0.216s] -- Up-to-date symlink: /home/jetson/ros2_ws/src/lane_lab/install/lane_lab/share/lane_lab/environment/ament_prefix_path.sh
+[0.216s] -- Up-to-date symlink: /home/jetson/ros2_ws/src/lane_lab/install/lane_lab/share/lane_lab/environment/ament_prefix_path.dsv
+[0.217s] -- Up-to-date symlink: /home/jetson/ros2_ws/src/lane_lab/install/lane_lab/share/lane_lab/environment/path.sh
+[0.217s] -- Up-to-date symlink: /home/jetson/ros2_ws/src/lane_lab/install/lane_lab/share/lane_lab/environment/path.dsv
+[0.217s] -- Up-to-date symlink: /home/jetson/ros2_ws/src/lane_lab/install/lane_lab/share/lane_lab/local_setup.bash
+[0.217s] -- Up-to-date symlink: /home/jetson/ros2_ws/src/lane_lab/install/lane_lab/share/lane_lab/local_setup.sh
+[0.218s] -- Up-to-date symlink: /home/jetson/ros2_ws/src/lane_lab/install/lane_lab/share/lane_lab/local_setup.zsh
+[0.218s] -- Up-to-date symlink: /home/jetson/ros2_ws/src/lane_lab/install/lane_lab/share/lane_lab/local_setup.dsv
+[0.218s] -- Symlinking: /home/jetson/ros2_ws/src/lane_lab/install/lane_lab/share/lane_lab/package.dsv
+[0.237s] -- Up-to-date symlink: /home/jetson/ros2_ws/src/lane_lab/install/lane_lab/share/ament_index/resource_index/packages/lane_lab
+[0.237s] -- Up-to-date symlink: /home/jetson/ros2_ws/src/lane_lab/install/lane_lab/share/lane_lab/cmake/lane_labConfig.cmake
+[0.238s] -- Up-to-date symlink: /home/jetson/ros2_ws/src/lane_lab/install/lane_lab/share/lane_lab/cmake/lane_labConfig-version.cmake
+[0.239s] -- Up-to-date symlink: /home/jetson/ros2_ws/src/lane_lab/install/lane_lab/share/lane_lab/package.xml
+[0.243s] Invoked command in '/home/jetson/ros2_ws/src/lane_lab/build/lane_lab' returned '0': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/home/jetson/yahboom_ws/install/camera:/opt/ros/humble /usr/bin/cmake --install /home/jetson/ros2_ws/src/lane_lab/build/lane_lab

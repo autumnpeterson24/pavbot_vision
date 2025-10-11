@@ -1,24 +1,34 @@
+import os
 from launch import LaunchDescription
 from launch_ros.actions import Node
-from launch.substitutions import PathJoinSubstitution
-from launch_ros.substitutions import FindPackageShare
+from ament_index_python.packages import get_package_share_directory
 
 def generate_launch_description():
-    cfg = PathJoinSubstitution([FindPackageShare('lane_lab'), 'config', 'lane.yaml'])
+    pkg_share = get_package_share_directory('lane_lab')
 
-    return LaunchDescription([
-        Node(
-            package='lane_lab',
-            executable='mock_camera',
-            name='mock_camera',
-            parameters=[cfg],
-            output='screen'
-        ),
-        Node(
-            package='lane_lab',
-            executable='lane_detector',
-            name='lane_detector',
-            parameters=[cfg],
-            output='screen'
-        )
-    ])
+    # Resolve paths inside the installed package
+    cfg_path   = os.path.join(pkg_share, 'config', 'lane.yaml')
+    video_path = os.path.join(pkg_share, 'media',  'RightWhiteLane.mp4')
+
+    mock_camera = Node(
+        package='lane_lab',
+        executable='mock_camera',
+        name='mock_camera',
+        parameters=[{
+            'video_path': video_path,        # uses package media file
+            'fps': 30.0,
+            'loop': True,
+            'frame_id': 'camera_optical_frame'
+        }],
+        output='screen'
+    )
+
+    lane_detector = Node(
+        package='lane_lab',
+        executable='lane_detector',
+        name='lane_detector',
+        parameters=[cfg_path],              # uses package config file
+        output='screen'
+    )
+
+    return LaunchDescription([mock_camera, lane_detector])

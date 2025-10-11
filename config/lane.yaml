@@ -8,7 +8,7 @@ lane_detector:
 
 mock_camera:
   ros__parameters:
-    video_path: "/home/jetson/Videos/RightWhiteLane.mp4"  
+    video_path: "$(find-pkg-share lane_lab)/media/RightWhiteLane.mp4"  
     fps: 30.0
     loop: true
     frame_id: "camera_optical_frame"
