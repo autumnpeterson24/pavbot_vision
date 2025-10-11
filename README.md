@@ -35,11 +35,13 @@ sudo apt install ros-humble-image-transport ros-humble-cv-bridge
 ```
 ---
 ## Build Instructions
+```bash
 cd ~/ros2_ws/src
 git clone https://github.com/autumnpeterson24/PAVbot_lane_detection.git
 cd ~/ros2_ws
 colcon build --symlink-install
 source install/setup.bash
+```
 
 ---
 
