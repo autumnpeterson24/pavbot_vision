@@ -1,0 +1,77 @@
+[0.023s] Invoking command in '/home/jetson/ros2_ws/src/lane_lab/build/lane_lab': CMAKE_PREFIX_PATH=/home/jetson/yahboom_ws/install/camera:/opt/ros/humble /usr/bin/cmake /home/jetson/ros2_ws/src/lane_lab -DAMENT_CMAKE_SYMLINK_INSTALL=1 -DCMAKE_INSTALL_PREFIX=/home/jetson/ros2_ws/src/lane_lab/install/lane_lab
+[0.226s] -- The C compiler identification is GNU 11.4.0
+[0.385s] -- The CXX compiler identification is GNU 11.4.0
+[0.409s] -- Detecting C compiler ABI info
+[0.554s] -- Detecting C compiler ABI info - done
+[0.574s] -- Check for working C compiler: /usr/bin/cc - skipped
+[0.575s] -- Detecting C compile features
+[0.576s] -- Detecting C compile features - done
+[0.588s] -- Detecting CXX compiler ABI info
+[0.752s] -- Detecting CXX compiler ABI info - done
+[0.769s] -- Check for working CXX compiler: /usr/bin/c++ - skipped
+[0.770s] -- Detecting CXX compile features
+[0.772s] -- Detecting CXX compile features - done
+[0.843s] -- Found ament_cmake: 1.3.11 (/opt/ros/humble/share/ament_cmake/cmake)
+[1.210s] -- Found Python3: /usr/bin/python3 (found version "3.10.12") found components: Interpreter 
+[1.365s] -- Override CMake install command with custom implementation using symlinks instead of copying resources
+[1.429s] -- Found rclcpp: 16.0.11 (/opt/ros/humble/share/rclcpp/cmake)
+[1.518s] -- Found rosidl_generator_c: 3.1.6 (/opt/ros/humble/share/rosidl_generator_c/cmake)
+[1.526s] -- Found rosidl_adapter: 3.1.6 (/opt/ros/humble/share/rosidl_adapter/cmake)
+[1.541s] -- Found rosidl_generator_cpp: 3.1.6 (/opt/ros/humble/share/rosidl_generator_cpp/cmake)
+[1.565s] -- Using all available rosidl_typesupport_c: rosidl_typesupport_fastrtps_c;rosidl_typesupport_introspection_c
+[1.593s] -- Using all available rosidl_typesupport_cpp: rosidl_typesupport_fastrtps_cpp;rosidl_typesupport_introspection_cpp
+[1.671s] -- Found rmw_implementation_cmake: 6.1.2 (/opt/ros/humble/share/rmw_implementation_cmake/cmake)
+[1.676s] -- Found rmw_fastrtps_cpp: 6.2.7 (/opt/ros/humble/share/rmw_fastrtps_cpp/cmake)
+[1.826s] -- Found OpenSSL: /usr/lib/aarch64-linux-gnu/libcrypto.so (found version "3.0.2")  
+[1.881s] -- Found FastRTPS: /opt/ros/humble/include  
+[1.950s] -- Using RMW implementation 'rmw_fastrtps_cpp' as default
+[1.966s] -- Looking for pthread.h
+[2.116s] -- Looking for pthread.h - found
+[2.117s] -- Performing Test CMAKE_HAVE_LIBC_PTHREAD
+[2.264s] -- Performing Test CMAKE_HAVE_LIBC_PTHREAD - Success
+[2.266s] -- Found Threads: TRUE  
+[2.391s] -- Found sensor_msgs: 4.2.4 (/opt/ros/humble/share/sensor_msgs/cmake)
+[2.448s] -- Found nav_msgs: 4.2.4 (/opt/ros/humble/share/nav_msgs/cmake)
+[2.481s] -- Found image_transport: 3.1.10 (/opt/ros/humble/share/image_transport/cmake)
+[2.538s] -- Found cv_bridge: 3.2.1 (/opt/ros/humble/share/cv_bridge/cmake)
+[2.599s] -- Found CUDA: /usr/local/cuda-12.6 (found suitable exact version "12.6") 
+[2.630s] -- Found OpenCV: /usr/local (found version "4.10.0") 
+[2.840s] -- Configuring done
+[2.904s] -- Generating done
+[2.923s] -- Build files have been written to: /home/jetson/ros2_ws/src/lane_lab/build/lane_lab
+[2.957s] Invoked command in '/home/jetson/ros2_ws/src/lane_lab/build/lane_lab' returned '0': CMAKE_PREFIX_PATH=/home/jetson/yahboom_ws/install/camera:/opt/ros/humble /usr/bin/cmake /home/jetson/ros2_ws/src/lane_lab -DAMENT_CMAKE_SYMLINK_INSTALL=1 -DCMAKE_INSTALL_PREFIX=/home/jetson/ros2_ws/src/lane_lab/install/lane_lab
+[2.958s] Invoking command in '/home/jetson/ros2_ws/src/lane_lab/build/lane_lab': CMAKE_PREFIX_PATH=/home/jetson/yahboom_ws/install/camera:/opt/ros/humble /usr/bin/cmake --build /home/jetson/ros2_ws/src/lane_lab/build/lane_lab -- -j6 -l6
+[3.060s] [ 25%] [32mBuilding CXX object CMakeFiles/lane_detector.dir/src/lane_detector.cpp.o[0m
+[3.067s] [ 50%] [32mBuilding CXX object CMakeFiles/mock_camera.dir/src/mock_camera.cpp.o[0m
+[16.425s] [ 75%] [32m[1mLinking CXX executable mock_camera[0m
+[16.810s] [100%] [32m[1mLinking CXX executable lane_detector[0m
+[16.858s] /usr/bin/ld: warning: libopencv_core.so.4.5d, needed by /opt/ros/humble/lib/libcv_bridge.so, may conflict with libopencv_core.so.410
+[17.116s] /usr/bin/ld: warning: libopencv_imgcodecs.so.4.5d, needed by /opt/ros/humble/lib/libcv_bridge.so, may conflict with libopencv_imgcodecs.so.410
+[17.117s] /usr/bin/ld: warning: libopencv_imgproc.so.4.5d, needed by /opt/ros/humble/lib/libcv_bridge.so, may conflict with libopencv_imgproc.so.410
+[17.119s] /usr/bin/ld: warning: libopencv_core.so.4.5d, needed by /opt/ros/humble/lib/libcv_bridge.so, may conflict with libopencv_core.so.410
+[17.860s] [100%] Built target mock_camera
+[17.890s] [100%] Built target lane_detector
+[17.921s] Invoked command in '/home/jetson/ros2_ws/src/lane_lab/build/lane_lab' returned '0': CMAKE_PREFIX_PATH=/home/jetson/yahboom_ws/install/camera:/opt/ros/humble /usr/bin/cmake --build /home/jetson/ros2_ws/src/lane_lab/build/lane_lab -- -j6 -l6
+[17.945s] Invoking command in '/home/jetson/ros2_ws/src/lane_lab/build/lane_lab': CMAKE_PREFIX_PATH=/home/jetson/yahboom_ws/install/camera:/opt/ros/humble /usr/bin/cmake --install /home/jetson/ros2_ws/src/lane_lab/build/lane_lab
+[17.961s] -- Install configuration: ""
+[17.962s] -- Execute custom install script
+[17.963s] -- Symlinking: /home/jetson/ros2_ws/src/lane_lab/install/lane_lab/lib/lane_lab/mock_camera
+[17.981s] -- Symlinking: /home/jetson/ros2_ws/src/lane_lab/install/lane_lab/lib/lane_lab/lane_detector
+[18.000s] -- Symlinking: /home/jetson/ros2_ws/src/lane_lab/install/lane_lab/share/lane_lab/launch/offline_lane_demo.launch.py
+[18.024s] -- Symlinking: /home/jetson/ros2_ws/src/lane_lab/install/lane_lab/share/lane_lab/config/lane.yaml
+[18.042s] -- Symlinking: /home/jetson/ros2_ws/src/lane_lab/install/lane_lab/share/ament_index/resource_index/package_run_dependencies/lane_lab
+[18.064s] -- Symlinking: /home/jetson/ros2_ws/src/lane_lab/install/lane_lab/share/ament_index/resource_index/parent_prefix_path/lane_lab
+[18.084s] -- Symlinking: /home/jetson/ros2_ws/src/lane_lab/install/lane_lab/share/lane_lab/environment/ament_prefix_path.sh
+[18.102s] -- Symlinking: /home/jetson/ros2_ws/src/lane_lab/install/lane_lab/share/lane_lab/environment/ament_prefix_path.dsv
+[18.121s] -- Symlinking: /home/jetson/ros2_ws/src/lane_lab/install/lane_lab/share/lane_lab/environment/path.sh
+[18.141s] -- Symlinking: /home/jetson/ros2_ws/src/lane_lab/install/lane_lab/share/lane_lab/environment/path.dsv
+[18.163s] -- Symlinking: /home/jetson/ros2_ws/src/lane_lab/install/lane_lab/share/lane_lab/local_setup.bash
+[18.182s] -- Symlinking: /home/jetson/ros2_ws/src/lane_lab/install/lane_lab/share/lane_lab/local_setup.sh
+[18.203s] -- Symlinking: /home/jetson/ros2_ws/src/lane_lab/install/lane_lab/share/lane_lab/local_setup.zsh
+[18.226s] -- Symlinking: /home/jetson/ros2_ws/src/lane_lab/install/lane_lab/share/lane_lab/local_setup.dsv
+[18.245s] -- Symlinking: /home/jetson/ros2_ws/src/lane_lab/install/lane_lab/share/lane_lab/package.dsv
+[18.267s] -- Symlinking: /home/jetson/ros2_ws/src/lane_lab/install/lane_lab/share/ament_index/resource_index/packages/lane_lab
+[18.286s] -- Symlinking: /home/jetson/ros2_ws/src/lane_lab/install/lane_lab/share/lane_lab/cmake/lane_labConfig.cmake
+[18.304s] -- Symlinking: /home/jetson/ros2_ws/src/lane_lab/install/lane_lab/share/lane_lab/cmake/lane_labConfig-version.cmake
+[18.325s] -- Symlinking: /home/jetson/ros2_ws/src/lane_lab/install/lane_lab/share/lane_lab/package.xml
+[18.349s] Invoked command in '/home/jetson/ros2_ws/src/lane_lab/build/lane_lab' returned '0': CMAKE_PREFIX_PATH=/home/jetson/yahboom_ws/install/camera:/opt/ros/humble /usr/bin/cmake --install /home/jetson/ros2_ws/src/lane_lab/build/lane_lab

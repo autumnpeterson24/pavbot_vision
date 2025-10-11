@@ -1,3 +1,17 @@
+/*
+  Mock Camera Node ===============================
+  Author: Autumn Peterson (IGVC 2026 PAVbot Team)
+ 
+  Description:
+  This ROS2 node simulates a camera by looping a video file at a fixed FPS,
+  uses OpenCV VideoCapture to read frames and publishes them as ROS
+  sensor_msgs/Image messages via image_transport. This allows testing of
+  downstream vision nodes (like lane detection) without needing physical hardware.
+
+  Based on standard ROS2 Humble and OpenCV APIs.
+  ==================================================
+ */
+
 #include <rclcpp/rclcpp.hpp>
 #include <image_transport/image_transport.hpp>
 #include <cv_bridge/cv_bridge.h>
