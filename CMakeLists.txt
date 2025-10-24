@@ -11,6 +11,12 @@ find_package(image_transport REQUIRED)
 find_package(cv_bridge REQUIRED)
 find_package(OpenCV REQUIRED)
 
+# Actual camera publisher
+add_executable(cam_pub src/cam_pub.cpp)
+ament_target_dependencies(cam_pub rclcpp image_transport cv_bridge sensor_msgs)
+target_link_libraries(cam_pub ${OpenCV_LIBS})
+
+
 # Mock camera node
 add_executable(mock_camera src/mock_camera.cpp)
 ament_target_dependencies(mock_camera
@@ -33,9 +39,16 @@ ament_target_dependencies(lane_detector
   OpenCV
 )
 
-# Install targets (These are the nodes for the mock cam and lane detection)
+# Install targets (These are the nodes for the mock cam and lane detection) + Real camera publisher node
+install(TARGETS 
+  cam_pub 
+
+  DESTINATION lib/${PROJECT_NAME}
+)
+
 install(TARGETS
   mock_camera
+
   lane_detector
   DESTINATION lib/${PROJECT_NAME}
 )
