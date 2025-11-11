@@ -345,6 +345,7 @@ private:
   rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr conf_pub;
 };
 
+// main ----------------------------
 int main(int argc, char** argv) {
   rclcpp::init(argc, argv);
   rclcpp::spin(std::make_shared<PotholeDetector>()); // spin up the node
