@@ -1,5 +1,5 @@
 /*
-  LaneDetectorNode.cpp =============================
+  lane_detector.cpp =============================
   Author: Autumn Peterson (IGVC 2026 PAVbot Team)
   Assistance from the following:
     OpenCV's Lane Line Detection guide: https://www.geeksforgeeks.org/machine-learning/opencv-real-time-road-lane-detection/
@@ -79,28 +79,28 @@ public:
     declare_parameter<double>("mppx", 0.025);
     declare_parameter<double>("mppy", 0.025);
 
-    get_parameter("camera_topic", cam_topic_);
-    get_parameter("path_frame", frame_);
-    get_parameter("roi_top_frac", roi_top_frac_);
-    get_parameter("mppx", mppx_);
-    get_parameter("mppy", mppy_);
+    get_parameter("camera_topic", cam_topic);
+    get_parameter("path_frame", frame);
+    get_parameter("roi_top_frac", roi_top_frac);
+    get_parameter("mppx", mppx);
+    get_parameter("mppy", mppy);
 
-    path_pub_ = create_publisher<nav_msgs::msg::Path>("/lanes/centerline", 10);
-    conf_pub_ = create_publisher<std_msgs::msg::Float32>("/lanes/confidence", 10);
-    dbg_pub_  = image_transport::create_publisher(this, "/lanes/debug_image");
+    path_pub = create_publisher<nav_msgs::msg::Path>("/lanes/centerline", 10);
+    conf_pub = create_publisher<std_msgs::msg::Float32>("/lanes/confidence", 10);
+    dbg_pub  = image_transport::create_publisher(this, "/lanes/debug_image");
 
-    sub_ = image_transport::create_subscription(this, cam_topic_, std::bind(&LaneDetectorNode::cb, this, std::placeholders::_1), "raw");
+    sub = image_transport::create_subscription(this, cam_topic, std::bind(&LaneDetectorNode::cb, this, std::placeholders::_1), "raw");
 
-    RCLCPP_INFO(get_logger(), "LaneDetector subscribed to %s", cam_topic_.c_str()); // logs to the terminal
+    RCLCPP_INFO(get_logger(), "LaneDetector subscribed to %s", cam_topic.c_str()); // logs to the terminal
   }
 
 private:
   void cb(const sensor_msgs::msg::Image::ConstSharedPtr& msg) {
     /* Recieves the mock camera image data and uses it to publish the centerline for the robot to follow */
     // Grab frame & ROI (region of interest)
-    cv::Mat frame = cv_bridge::toCvShare(msg, "bgr8")->image;
-    const int top = (int)(frame.rows * roi_top_frac_);
-    cv::Mat roi = frame.rowRange(top, frame.rows);
+    cv::Mat bgr = cv_bridge::toCvShare(msg, "bgr8")->image;
+    const int top = (int)(bgr.rows * roi_top_frac);
+    cv::Mat roi = bgr.rowRange(top, bgr.rows);
 
     // Threshold (white-ish + edges)
     cv::Mat hsv; cv::cvtColor(roi, hsv, cv::COLOR_BGR2HSV);
@@ -189,7 +189,7 @@ private:
 
     // Build centerline Path in meters (base_link frame)
     nav_msgs::msg::Path path;
-    path.header.frame_id = frame_;
+    path.header.frame_id = this->frame;
     path.header.stamp = msg->header.stamp;
 
     // find the center path of the image between the right and left quadratic lines (pl and pr)
@@ -208,13 +208,13 @@ private:
       // transform the path into "poses" for the robot
       geometry_msgs::msg::PoseStamped p;
       p.header = path.header;
-      p.pose.position.x = (H - 1 - y) * mppy_;      // forward (meters)
-      p.pose.position.y = (x - cx_img) * mppx_;     // lateral (meters)
+      p.pose.position.x = (H - 1 - y) * mppy;      // forward (meters)
+      p.pose.position.y = (x - cx_img) * mppx;     // lateral (meters)
       p.pose.position.z = 0.0;
       p.pose.orientation.w = 1.0;
       path.poses.push_back(p);
     }
-    path_pub_->publish(path); // publishing the path for the robot
+    path_pub->publish(path); // publishing the path for the robot
 
     // Confidence (fraction of mask pixels ON)
     std_msgs::msg::Float32 conf;
@@ -222,7 +222,7 @@ private:
     // Confidence float tells how "good" the lane prediciton is: 0.05 - 0.2 means a lane is seen anything less or over measn it's not doing well
     // if the mask is empty just make confidence 0, anything else is the non-zero amount of the pixels divided by the total amount of pixels in the mask
     conf.data = mask.empty() ? 0.f : (float)cv::countNonZero(mask) / (float)mask.total(); 
-    conf_pub_->publish(conf);
+    conf_pub->publish(conf);
 
     // Debug image: draw red centerline + green/blue boundaries
     cv::Mat dbg; cv::cvtColor(mask, dbg, cv::COLOR_GRAY2BGR);
@@ -251,16 +251,16 @@ private:
     if (pr.valid) 
       draw_poly(dbg, pr, cv::Scalar(255,0,0));   // blue
 
-    dbg_pub_.publish(cv_bridge::CvImage(msg->header, "bgr8", dbg).toImageMsg());
+    dbg_pub.publish(cv_bridge::CvImage(msg->header, "bgr8", dbg).toImageMsg());
   }
 
   // Members of Lane Detection Node
-  std::string cam_topic_, frame_;
-  double roi_top_frac_, mppx_, mppy_;
-  image_transport::Subscriber sub_;
-  image_transport::Publisher  dbg_pub_;
-  rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr path_pub_;
-  rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr conf_pub_;
+  std::string cam_topic, frame;
+  double roi_top_frac, mppx, mppy;
+  image_transport::Subscriber sub;
+  image_transport::Publisher  dbg_pub;
+  rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr path_pub;
+  rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr conf_pub;
 };
 
 int main(int argc, char** argv) {

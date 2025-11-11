@@ -1,3 +1,8 @@
+
+"""
+Don't need anything from this anymore using real cam publishing
+"""
+
 import os
 from launch import LaunchDescription
 from launch_ros.actions import Node

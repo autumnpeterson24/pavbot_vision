@@ -2,7 +2,7 @@
 <package format="3">
   <name>lane_lab</name>
   <version>0.0.1</version>
-  <description>Offline lane detection demo with mock video feed and OpenCV processing.</description>
+  <description>Lane detection and pothole detection using ROS2 and OpenCV image processing.</description>
   <maintainer email="petersonautumn24@gmail.com">Autumn Peterson</maintainer>
   <license>MIT</license>
 
@@ -16,9 +16,14 @@
   <depend>std_msgs</depend>
   <depend>image_transport</depend>
   <depend>cv_bridge</depend>
+  <depend>OpenCV</depend>
+  <depend>vision_msgs</depend>
+  <depend>opencv2</depend>
 
-  <!-- Optional (for visualization) -->
+  <!-- Launch & TF runtime deps -->
+  <exec_depend>ros_gz_bridge</exec_depend>
   <exec_depend>rviz2</exec_depend>
+  <exec_depend>tf2_ros</exec_depend>
 
   <export>
     <build_type>ament_cmake</build_type>

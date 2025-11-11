@@ -10,24 +10,29 @@ find_package(std_msgs REQUIRED)
 find_package(image_transport REQUIRED)
 find_package(cv_bridge REQUIRED)
 find_package(OpenCV REQUIRED)
+find_package(vision_msgs REQUIRED)
 
-# Actual camera publisher
+# Actual camera publisher ---------------------------
 add_executable(cam_pub src/cam_pub.cpp)
 ament_target_dependencies(cam_pub rclcpp image_transport cv_bridge sensor_msgs)
 target_link_libraries(cam_pub ${OpenCV_LIBS})
 
+# Pothole detector node ------------------------------
+add_executable(pothole_detector src/pothole_detector.cpp)
+ament_target_dependencies(pothole_detector
+  rclcpp 
+  image_transport 
+  cv_bridge 
+  OpenCV 
+  sensor_msgs 
+  std_msgs 
+  vision_msgs
+  )
 
-# Mock camera node
-add_executable(mock_camera src/mock_camera.cpp)
-ament_target_dependencies(mock_camera
-  rclcpp
-  sensor_msgs
-  image_transport
-  cv_bridge
-  OpenCV
-)
+target_compile_features(pothole_detector PUBLIC cxx_std_17)
 
-# Lane detector node
+
+# Lane detector node -------------------------------
 add_executable(lane_detector src/lane_detector.cpp)
 ament_target_dependencies(lane_detector
   rclcpp
@@ -39,26 +44,34 @@ ament_target_dependencies(lane_detector
   OpenCV
 )
 
-# Install targets (These are the nodes for the mock cam and lane detection) + Real camera publisher node
-install(TARGETS 
-  cam_pub 
+# Mock camera node (Not really used anymore)
+# add_executable(mock_camera src/mock_camera.cpp)
+# ament_target_dependencies(mock_camera
+#   rclcpp
+#   sensor_msgs
+#   image_transport
+#   cv_bridge
+#   OpenCV
+# )
 
-  DESTINATION lib/${PROJECT_NAME}
-)
+# Install targets
 
 install(TARGETS
-  mock_camera
+  #mock_camera
 
+  cam_pub
   lane_detector
+  pothole_detector
+
   DESTINATION lib/${PROJECT_NAME}
 )
 
-# Install launch and config files
-install(DIRECTORY launch config
-  DESTINATION share/${PROJECT_NAME}
-)
-# Install launch, config, and media 
-install(DIRECTORY launch config media
+
+# Install launch, config, and media (don't need media for debugging anymore now with real cams)
+install(DIRECTORY 
+  launch 
+  config 
+  #media
   DESTINATION share/${PROJECT_NAME}
 )
 

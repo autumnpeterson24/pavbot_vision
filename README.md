@@ -1,96 +1,51 @@
-# PAVbot Lane Detection (ROS 2 Humble)
+# PAVbot Perception System (ROS 2 Humble)
 
-This package implements a **prototype lane detection system** for the PAVbot platform competing in the **2026 IGVC AutoNav Challenge**.
-
-It processes video or live camera data using OpenCV and publishes lane centerlines as ROS 2 topics that can be used for autonomous navigation.
-
-**FUTURE UPDATES**
-Still need to refine the poses and coordinate publishing to make sure the coordinates are actually correct within the world space and 
-I want to add Gazebo implementation as well.
+[![ROS 2](https://img.shields.io/badge/ROS2-Humble-blue.svg)](https://docs.ros.org/en/humble/)
+[![OpenCV](https://img.shields.io/badge/OpenCV-4.x-green.svg)](https://opencv.org/)
+[![IGVC 2026](https://img.shields.io/badge/Competition-IGVC AutoNav 2026-orange.svg)](https://www.igvc.org/)
+[![Build](https://img.shields.io/badge/Build-Colcon-success.svg)](https://colcon.readthedocs.io/)
+[![License](https://img.shields.io/badge/License-MIT-lightgrey.svg)](LICENSE)
 
 ---
 
 ## Overview
 
-**Nodes:**
-- `lane_detector` – Subscribes to `/camera/image_raw`, processes frames, and publishes:
-  - `/lanes/centerline` (`nav_msgs/Path`) — estimated lane center path
-  - `/lanes/confidence` (`std_msgs/Float32`) — lane detection confidence
-  - `/lanes/debug_image` (`sensor_msgs/Image`) — visual overlay for RViz
+This package provides **lane and pothole detection** for **PAVbot** (Pathfinding Autonomous Vehicle) competing in the **2026 IGVC AutoNav Challenge**.  
+Both detectors run in real time on embedded Jetson hardware using **pure OpenCV pipelines**.
+---
 
-- `mock_camera` – Streams a video as fake camera input (useful for testing without hardware)
+### ROS2 Nodes
+
+| **`lane_detector`** | Detects lane markings and publishes a smoothed centerline path. | → `/lanes/centerline` (`nav_msgs/Path`)<br>→ `/lanes/confidence` (`std_msgs/Float32`)<br>→ `/lanes/debug_image` (`sensor_msgs/Image`)<br>← `/lane_cam/image_raw` |
+| **`pothole_detector`** | Detects dark concave regions resembling potholes. | → `/potholes/detections` (`vision_msgs/Detection2DArray`)<br>→ `/potholes/confidence` (`std_msgs/Float32`)<br>→ `/potholes/debug_image` (`sensor_msgs/Image`)<br>← `/pothole_cam/image_raw` |
+| **`cam_pub`** | Publishes live USB camera feeds for each perception module. | → `/lane_cam/image_raw`, `/pothole_cam/image_raw` |
+
+---
+
+## Algorithms
+
+### **Lane Detection**
+HSV threshold -> Sobel edges -> sliding-window quadratic fit -> centerline generation.  
+Publishes a `nav_msgs/Path` for the navigation stack and a confidence metric for lane visibility.
+
+### **Pothole Detection**
+Two modes selected via `pothole_detector.mode` parameter:
+
+| `blackhat` | Morphological black-hat filter + adaptive Gaussian threshold to isolate dark depressions on asphalt. **Outdoor IGVC testing**
+| `simple` | Otsu threshold with bias + morphological closing for black circles on white backgrounds. **For testing**
+
+Each blob is filtered by area and roundness, optionally merged, and published as `vision_msgs/Detection2D` boxes.
 
 ---
 
 ## Dependencies
 
-- ROS 2 Humble
-- `image_transport`
-- `cv_bridge`
-- `OpenCV`
-- `nav_msgs`, `geometry_msgs`, `std_msgs`
-
-Install ROS 2 Humble + build tools (only have to do this once):
 ```bash
-# Basic dev tools
 sudo apt update
-sudo apt install -y curl gnupg lsb-release build-essential
-
-# ROS 2 Humble apt repo + key
-sudo mkdir -p /usr/share/keyrings
-curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key \
- | sudo gpg --dearmor -o /usr/share/keyrings/ros-archive-keyring.gpg
-echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] \
-https://packages.ros.org/ros2/ubuntu $(. /etc/os-release && echo $UBUNTU_CODENAME) main" \
-| sudo tee /etc/apt/sources.list.d/ros2.list
-
-sudo apt update
-
-# Full desktop (rviz2, tools, colcon, etc.)
-sudo apt install -y ros-humble-desktop
-
-# Extra packages used by the repo
-sudo apt install -y ros-humble-image-transport ros-humble-cv-bridge \
-                    ros-humble-camera-info-manager ros-humble-rviz2 \
-                    libopencv-dev v4l-utils
-# ! If this is the first ROS 2 machine you’ve ever used, set up rosdep: !
-sudo apt install -y python3-rosdep
+sudo apt install -y ros-humble-desktop \
+  ros-humble-image-transport ros-humble-cv-bridge \
+  ros-humble-vision-msgs ros-humble-camera-info-manager \
+  ros-humble-rviz2 libopencv-dev v4l-utils \
+  python3-rosdep
 sudo rosdep init 2>/dev/null || true
 rosdep update
-```
----
-## Set up ros2_ws: 
-**Create workspace and clone in the pkg from the repo**
-```bash
-mkdir -p ~/ros2_ws/src
-cd ~/ros2_ws/src
-
-# Clone repo here
-git clone https://github.com/autumnpeterson24/PAVbot_lane_detection.git lane_lab
-
-```
-**Install Dependencies**
-```bash
-cd ~/ros2_ws
-rosdep install --from-paths src --ignore-src -r -y
-```
-**Build and Source**
-```bash
-cd ~/ros2_ws
-colcon build --symlink-install
-source install/setup.bash
-```
-
----
-
-## Run the offline Demo
-```bash
-ros2 launch lane_lab offline_lane_demo.launch.py
-```
-
----
-
-## Visualize in RViz (in another terminal)
-```bash
-rviz2 -d ~/ros2_ws/src/lane_lab/config/lane_view.rviz
-```
