@@ -39,8 +39,9 @@ Publishes a `nav_msgs/Path` for the navigation stack and a confidence metric for
 ### **Pothole Detection**
 Two modes selected via `pothole_detector.mode` parameter:
 
-| `blackhat` | Morphological black-hat filter + adaptive Gaussian threshold to isolate dark depressions on asphalt. **Outdoor IGVC testing**\
-| `simple` | Otsu threshold with bias + morphological closing for black circles on white backgrounds. **For whiteboard testing**
+| `blackhat` | Morphological black-hat filter + adaptive Gaussian threshold to isolate dark depressions on asphalt. (Outdoor IGVC testing)\
+
+| `simple` | Otsu threshold with bias + morphological closing for black circles on white backgrounds. (For whiteboard testing)\
 
 Each blob is filtered by area and roundness, optionally merged, and published as `vision_msgs/Detection2D` boxes.
 
