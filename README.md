@@ -8,8 +8,8 @@
 
 ## Overview
 
-This package provides **lane and pothole detection** for **PAVbot** (Pathfinding Autonomous Vehicle) competing in the **2026 IGVC AutoNav Challenge**.  
-Both detectors run in real time on embedded Jetson hardware using **pure OpenCV pipelines**.
+- Repository for **lane and pothole detection** for **PAVbot** (Pathfinding Autonomous Vehicle) competing in the **2026 IGVC AutoNav Challenge**.  
+- Both detectors run in real time on embedded Jetson hardware using **pure OpenCV pipelines**.
 ---
 
 ## ROS2 Nodes
