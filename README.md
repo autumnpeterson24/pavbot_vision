@@ -2,7 +2,6 @@
 
 [![ROS 2](https://img.shields.io/badge/ROS2-Humble-blue.svg)](https://docs.ros.org/en/humble/)
 [![OpenCV](https://img.shields.io/badge/OpenCV-4.x-green.svg)](https://opencv.org/)
-[![IGVC 2026](https://img.shields.io/badge/Competition-IGVC AutoNav 2026-orange.svg)](https://www.igvc.org/)
 [![Build](https://img.shields.io/badge/Build-Colcon-success.svg)](https://colcon.readthedocs.io/)
 [![License](https://img.shields.io/badge/License-MIT-lightgrey.svg)](LICENSE)
 
