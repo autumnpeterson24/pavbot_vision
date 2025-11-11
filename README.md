@@ -4,6 +4,7 @@
 [![OpenCV](https://img.shields.io/badge/OpenCV-4.x-green.svg)](https://opencv.org/)
 [![Build](https://img.shields.io/badge/Build-Colcon-success.svg)](https://colcon.readthedocs.io/)
 [![License](https://img.shields.io/badge/License-MIT-lightgrey.svg)](LICENSE)
+
 ---
 
 ## Overview
@@ -26,6 +27,7 @@
 |**`cam_pub`**|\
   Publishes live USB camera feeds for each perception module.\
    **cam_pub** **->** `/lane_cam/image_raw`, `/pothole_cam/image_raw`
+
 ---
 
 ## Algorithms
@@ -42,6 +44,7 @@ Two modes selected via `pothole_detector.mode` parameter:
 | `simple` | Otsu threshold with bias + morphological closing for black circles on white backgrounds. (For whiteboard testing)\
 
 Each blob is filtered by area and roundness, optionally merged, and published as `vision_msgs/Detection2D` boxes.
+
 ---
 
 ## Dependencies
