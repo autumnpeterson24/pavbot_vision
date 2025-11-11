@@ -14,10 +14,11 @@ Both detectors run in real time on embedded Jetson hardware using **pure OpenCV 
 ---
 
 ### ROS2 Nodes
+## Publish (->), Subscribe (<-)
 
-| **`lane_detector`** | Detects lane markings and publishes a smoothed centerline path. | → `/lanes/centerline` (`nav_msgs/Path`)<br>→ `/lanes/confidence` (`std_msgs/Float32`)<br>→ `/lanes/debug_image` (`sensor_msgs/Image`)<br>← `/lane_cam/image_raw` |
-| **`pothole_detector`** | Detects dark concave regions resembling potholes. | → `/potholes/detections` (`vision_msgs/Detection2DArray`)<br>→ `/potholes/confidence` (`std_msgs/Float32`)<br>→ `/potholes/debug_image` (`sensor_msgs/Image`)<br>← `/pothole_cam/image_raw` |
-| **`cam_pub`** | Publishes live USB camera feeds for each perception module. | → `/lane_cam/image_raw`, `/pothole_cam/image_raw` |
+| **`lane_detector`** Detects lane markings and publishes a smoothed centerline path.| ->`/lanes/centerline` (`nav_msgs/Path`)-> `/lanes/confidence` (`std_msgs/Float32`)-> `/lanes/debug_image` (`sensor_msgs/Image`)<- `/lane_cam/image_raw`
+| **`pothole_detector`** Detects dark concave regions resembling potholes.| -> `/potholes/detections` (`vision_msgs/Detection2DArray`) -> `/potholes/confidence` (`std_msgs/Float32`)->v`/potholes/debug_image` (`sensor_msgs/Image`) <- `/pothole_cam/image_raw`
+| **`cam_pub`** Publishes live USB camera feeds for each perception module.| ->`/lane_cam/image_raw`, `/pothole_cam/image_raw`
 
 ---
 
