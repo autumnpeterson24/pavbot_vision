@@ -1,6 +1,6 @@
 <?xml version="1.0"?>
 <package format="3">
-  <name>lane_lab</name>
+  <name>pavbot_vision</name>
   <version>0.0.1</version>
   <description>Lane detection and pothole detection using ROS2 and OpenCV image processing.</description>
   <maintainer email="petersonautumn24@gmail.com">Autumn Peterson</maintainer>

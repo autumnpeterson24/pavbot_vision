@@ -10,7 +10,7 @@ from launch_ros.actions import Node
 
 def generate_launch_description():
     lane_device_arg    = DeclareLaunchArgument('lane_device', default_value='/dev/video3')
-    pothole_device_arg = DeclareLaunchArgument('pothole_device', default_value='/dev/video7')
+    pothole_device_arg = DeclareLaunchArgument('pothole_device', default_value='/dev/video4')
 
 
     # Lane camera node for lane detection

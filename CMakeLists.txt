@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.10)
-project(lane_lab)
+project(pavbot_vision)
 
 # Find required packages 
 find_package(ament_cmake REQUIRED)
