@@ -1,6 +1,8 @@
 """
 Launch file for lane_detector and pothole_detector nodes and cam_pub to link together
 everything including camera hardware. Makes it easier to test.
+Launch file resource: https://docs.ros.org/en/humble/Tutorials/Intermediate/Launch/Creating-Launch-Files.html
+
 """
 
 from launch import LaunchDescription

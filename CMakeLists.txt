@@ -6,6 +6,7 @@ find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
+find_package(geometry_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(image_transport REQUIRED)
 find_package(cv_bridge REQUIRED)
@@ -33,11 +34,12 @@ target_compile_features(pothole_detector PUBLIC cxx_std_17)
 
 
 # Lane detector node -------------------------------
-add_executable(lane_detector src/lane_detector.cpp)
-ament_target_dependencies(lane_detector
+add_executable(lane_detector_dual src/lane_detector_dual.cpp)
+ament_target_dependencies(lane_detector_dual
   rclcpp
   sensor_msgs
   nav_msgs
+  geometry_msgs
   std_msgs
   image_transport
   cv_bridge
@@ -60,7 +62,7 @@ install(TARGETS
   #mock_camera
 
   cam_pub
-  lane_detector
+  lane_detector_dual
   pothole_detector
 
   DESTINATION lib/${PROJECT_NAME}
