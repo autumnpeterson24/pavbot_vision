@@ -22,6 +22,30 @@ struct Poly2 {
   double eval(double y) const { return a*y*y + b*y + c; }
 };
 
+// -----------------------------
+// Helpers
+// -----------------------------
+static inline float clamp01(float v) {
+  return std::max(0.0f, std::min(1.0f, v));
+}
+
+static inline float smoothstep(float edge0, float edge1, float x) {
+  if (edge1 <= edge0) return (x >= edge1) ? 1.0f : 0.0f;
+  float t = clamp01((x - edge0) / (edge1 - edge0));
+  return t * t * (3.0f - 2.0f * t);
+}
+
+static inline double clampd(double v, double lo, double hi) {
+  return std::max(lo, std::min(hi, v));
+}
+
+static inline double exp_smooth_alpha_from_dt(double dt, double tau) {
+  // For time-constant low-pass: alpha = exp(-dt/tau). alpha close to 1 => more smoothing.
+  if (!(dt > 0.0) || !(tau > 1e-6)) return 0.0;  // 0 => no smoothing (use new)
+  double a = std::exp(-dt / tau);
+  return clampd(a, 0.0, 0.995);
+}
+
 static Poly2 fit_poly2(const std::vector<cv::Point>& pts) {
   Poly2 poly;
   if (pts.size() < 15) return poly;
@@ -53,22 +77,43 @@ static void draw_poly(cv::Mat& img, const Poly2& p, const cv::Scalar& col) {
   }
 }
 
-// ---- confidence helpers ----
-static inline float clamp01(float v) {
-  return std::max(0.0f, std::min(1.0f, v));
+// Robust refit: fit once, keep inliers by residual threshold, refit.
+static Poly2 robust_refit_poly2(const std::vector<cv::Point>& pts,
+                                int min_pts,
+                                double inlier_thresh_px,
+                                int min_inliers)
+{
+  Poly2 p0 = fit_poly2(pts);
+  if (!p0.valid) return p0;
+  if ((int)pts.size() < min_pts) return Poly2{};
+
+  std::vector<cv::Point> inliers;
+  inliers.reserve(pts.size());
+  for (const auto& pt : pts) {
+    const double xhat = p0.eval((double)pt.y);
+    if (!std::isfinite(xhat)) continue;
+    const double r = std::abs((double)pt.x - xhat);
+    if (r <= inlier_thresh_px) inliers.push_back(pt);
+  }
+
+  if ((int)inliers.size() < std::max(min_inliers, min_pts)) {
+    // Not enough consistent support; mark invalid to prevent high-speed snap.
+    return Poly2{};
+  }
+  return fit_poly2(inliers);
 }
 
-static inline float smoothstep(float edge0, float edge1, float x) {
-  if (edge1 <= edge0) return (x >= edge1) ? 1.0f : 0.0f;
-  float t = clamp01((x - edge0) / (edge1 - edge0));
-  return t * t * (3.0f - 2.0f * t);
+static Poly2 blend_poly(const Poly2& prev, const Poly2& curr, double alpha_prev) {
+  // alpha_prev in [0..1): out = alpha_prev*prev + (1-alpha_prev)*curr
+  if (!curr.valid) return Poly2{};
+  if (!prev.valid) return curr;
+  Poly2 out;
+  out.a = alpha_prev * prev.a + (1.0 - alpha_prev) * curr.a;
+  out.b = alpha_prev * prev.b + (1.0 - alpha_prev) * curr.b;
+  out.c = alpha_prev * prev.c + (1.0 - alpha_prev) * curr.c;
+  out.valid = true;
+  return out;
 }
-
-static inline double clampd(double v, double lo, double hi) {
-  return std::max(lo, std::min(hi, v));
-}
-
-
 
 struct BoundaryResult {
   Poly2 poly;
@@ -95,7 +140,7 @@ public:
     declare_parameter<std::string>("path_frame", "base_link");
 
     // Geometry conversion
-    declare_parameter<double>("roi_top_frac", 0.35);
+    declare_parameter<double>("roi_top_frac", 0.3);
     declare_parameter<double>("mppx", 0.025);
     declare_parameter<double>("mppy", 0.025);
 
@@ -103,14 +148,18 @@ public:
     declare_parameter<double>("nominal_lane_half_width_m", 0.75);
 
     // Camera offsets relative to base_link (ROS: +y left, -y right)
-    declare_parameter<double>("left_cam_y_offset_m",  0.30);
-    declare_parameter<double>("right_cam_y_offset_m", -0.30);
+    declare_parameter<double>("left_cam_y_offset_m",  0.0);
+    declare_parameter<double>("right_cam_y_offset_m", -0.0);
 
-    // Optional timestamp sync gate (disabled by default)
+    // Optional timestamp sync gate
     declare_parameter<bool>("use_sync_gate", false);
     declare_parameter<double>("sync_slop_sec", 0.08);
 
-    // Confidence tuning (defaults are reasonable for 640x480 sim)
+    // NEW: freshness gating (prevents mixing very stale frames at higher speed)
+    declare_parameter<double>("max_boundary_age_sec", 0.20);    // ignore boundary if older than this
+    declare_parameter<double>("max_pair_skew_sec", 0.05);       // when both exist, prefer close timestamps
+
+    // Confidence tuning
     declare_parameter<int>("min_points_fit", 15);
     declare_parameter<int>("support_pts_lo", 150);
     declare_parameter<int>("support_pts_hi", 900);
@@ -118,6 +167,19 @@ public:
     declare_parameter<double>("residual_bad_px", 18.0);
     declare_parameter<double>("curv_good", 1e-4);
     declare_parameter<double>("curv_bad", 8e-4);
+
+    // NEW: robust refit for higher speeds (reject outliers => less snapping)
+    declare_parameter<bool>("robust_refit", true);
+    declare_parameter<double>("robust_inlier_thresh_px", 10.0);
+    declare_parameter<int>("robust_min_inliers", 40);
+
+    // NEW: temporal smoothing of per-camera polynomials (reduces jitter at speed)
+    declare_parameter<double>("poly_smooth_tau_sec", 0.25);  // time constant; lower = more responsive
+
+    // NEW: segmentation knobs (so you can tighten for speed/lighting)
+    declare_parameter<int>("sat_max_for_white", 60);
+    declare_parameter<int>("val_min_for_white", 200);
+    declare_parameter<int>("sobel_thresh", 40);
 
     // Debug throttling
     declare_parameter<double>("debug_print_hz", 1.0);
@@ -129,10 +191,13 @@ public:
 
     // Auto-learn lane half width from dual-lane frames
     declare_parameter<bool>("auto_learn_half_width", true);
-    declare_parameter<double>("half_width_learn_alpha", 0.90);  // 0.9 old, 0.1 new
+    declare_parameter<double>("half_width_learn_alpha", 0.90);
     declare_parameter<double>("half_width_min_m", 0.25);
     declare_parameter<double>("half_width_max_m", 1.25);
 
+    // Preference / hold
+    declare_parameter<int>("prefer_switch_threshold", 6);
+    declare_parameter<double>("center_hold_sec", 0.25);
 
     // Load params
     get_parameter("left_camera_topic", left_topic_);
@@ -149,6 +214,8 @@ public:
 
     get_parameter("use_sync_gate", use_sync_gate_);
     get_parameter("sync_slop_sec", sync_slop_sec_);
+    get_parameter("max_boundary_age_sec", max_boundary_age_sec_);
+    get_parameter("max_pair_skew_sec", max_pair_skew_sec_);
 
     get_parameter("min_points_fit", min_points_fit_);
     get_parameter("support_pts_lo", support_pts_lo_);
@@ -157,6 +224,15 @@ public:
     get_parameter("residual_bad_px", residual_bad_px_);
     get_parameter("curv_good", curv_good_);
     get_parameter("curv_bad", curv_bad_);
+
+    get_parameter("robust_refit", robust_refit_);
+    get_parameter("robust_inlier_thresh_px", robust_inlier_thresh_px_);
+    get_parameter("robust_min_inliers", robust_min_inliers_);
+    get_parameter("poly_smooth_tau_sec", poly_smooth_tau_sec_);
+
+    get_parameter("sat_max_for_white", sat_max_for_white_);
+    get_parameter("val_min_for_white", val_min_for_white_);
+    get_parameter("sobel_thresh", sobel_thresh_);
 
     get_parameter("min_lane_confidence", min_lane_conf_);
     get_parameter("lane_conf_hysteresis", lane_conf_hyst_);
@@ -167,6 +243,8 @@ public:
     get_parameter("half_width_min_m", half_width_min_m_);
     get_parameter("half_width_max_m", half_width_max_m_);
 
+    get_parameter("prefer_switch_threshold", prefer_switch_threshold_);
+    get_parameter("center_hold_sec", center_hold_sec_);
 
     get_parameter("debug_print_hz", debug_print_hz_);
     debug_print_period_ms_ = (debug_print_hz_ <= 0.0) ? 0 : (int)(1000.0 / debug_print_hz_);
@@ -196,11 +274,14 @@ public:
     RCLCPP_INFO(get_logger(), "  right: %s", right_topic_.c_str());
     RCLCPP_INFO(get_logger(), "  frame: %s", frame_.c_str());
     RCLCPP_INFO(get_logger(), "  roi_top_frac=%.2f  mppx=%.4f  mppy=%.4f", roi_top_frac_, mppx_, mppy_);
+    RCLCPP_INFO(get_logger(), "  robust_refit=%s  poly_tau=%.3fs  max_age=%.3fs",
+                robust_refit_ ? "true" : "false", poly_smooth_tau_sec_, max_boundary_age_sec_);
   }
 
 private:
-
-  // fusion params
+  // -----------------------------
+  // Fusion params
+  // -----------------------------
   double min_lane_conf_{0.35};
   double lane_conf_hyst_{0.07};
   double center_smooth_alpha_{0.85};
@@ -210,13 +291,55 @@ private:
   double half_width_min_m_{0.25};
   double half_width_max_m_{1.25};
 
-  // fusion state
+  // Freshness / sync
+  bool use_sync_gate_{false};
+  double sync_slop_sec_{0.08};
+  double max_boundary_age_sec_{0.20};
+  double max_pair_skew_sec_{0.05};
+
+  // Robust + temporal
+  bool robust_refit_{true};
+  double robust_inlier_thresh_px_{10.0};
+  int robust_min_inliers_{40};
+  double poly_smooth_tau_sec_{0.25};
+
+  // Segmentation tuning
+  int sat_max_for_white_{60};
+  int val_min_for_white_{200};
+  int sobel_thresh_{40};
+
+  // Fusion state
   bool left_ok_{false};
   bool right_ok_{false};
   std::optional<nav_msgs::msg::Path> last_centerline_;
 
+  // Preference state
+  enum class PreferredSide { LEFT, RIGHT };
+  PreferredSide preferred_side_{PreferredSide::LEFT};
+  int prefer_switch_count_{0};
+  int prefer_switch_threshold_{6};
+
+  // Hold last published centerline briefly
+  double center_hold_sec_{0.25};
+  rclcpp::Time last_center_pub_time_{0, 0, RCL_ROS_TIME};
+  nav_msgs::msg::Path last_center_pub_;
+  bool has_last_center_pub_{false};
+
+  // Per-side poly filter state
+  struct PolyState {
+    Poly2 last;
+    rclcpp::Time stamp{0,0,RCL_ROS_TIME};
+    bool has{false};
+  };
+  PolyState left_poly_state_;
+  PolyState right_poly_state_;
+
+  // -----------------------------
+  // Core processing
+  // -----------------------------
   BoundaryResult processOneBoundary(const sensor_msgs::msg::Image::ConstSharedPtr& msg,
-                                   bool is_left_camera) {
+                                   bool is_left_camera)
+  {
     BoundaryResult out;
     out.stamp = msg->header.stamp;
 
@@ -235,15 +358,15 @@ private:
     cv::split(hsv, ch);
 
     cv::Mat maskS, maskV, mask;
-    cv::threshold(ch[1], maskS, 60, 255, cv::THRESH_BINARY_INV);
-    cv::threshold(ch[2], maskV, 200, 255, cv::THRESH_BINARY);
+    cv::threshold(ch[1], maskS, sat_max_for_white_, 255, cv::THRESH_BINARY_INV);
+    cv::threshold(ch[2], maskV, val_min_for_white_, 255, cv::THRESH_BINARY);
     cv::bitwise_and(maskS, maskV, mask);
 
     cv::Mat gray, gradx, absx, edges;
     cv::cvtColor(roi, gray, cv::COLOR_BGR2GRAY);
     cv::Sobel(gray, gradx, CV_16S, 1, 0, 3);
     cv::convertScaleAbs(gradx, absx);
-    cv::threshold(absx, edges, 40, 255, cv::THRESH_BINARY);
+    cv::threshold(absx, edges, sobel_thresh_, 255, cv::THRESH_BINARY);
 
     cv::bitwise_or(mask, edges, mask);
     cv::morphologyEx(mask, mask, cv::MORPH_CLOSE,
@@ -295,10 +418,8 @@ private:
       std::vector<cv::Point> nz;
       cv::findNonZero(mask(win), nz);
 
-      // accumulate points in ROI coords
       for (auto &p : nz) P.emplace_back(p.x + xlo2, p.y + ylo);
 
-      // recenter if enough
       if ((int)nz.size() > minpix) {
         windows_hit++;
         int s = 0;
@@ -311,7 +432,28 @@ private:
     out.windows_hit = windows_hit;
     out.nwindows = nwindows;
 
-    out.poly = fit_poly2(P);
+    // Fit (robust, then temporal smooth)
+    Poly2 fitted;
+    if (robust_refit_) {
+      fitted = robust_refit_poly2(P, min_points_fit_, robust_inlier_thresh_px_, robust_min_inliers_);
+    } else {
+      fitted = fit_poly2(P);
+    }
+
+    // Temporal smoothing of the poly coefficients (reduces high-speed jitter)
+    if (fitted.valid) {
+      PolyState& st = is_left_camera ? left_poly_state_ : right_poly_state_;
+      double dt = st.has ? (out.stamp - st.stamp).seconds() : 0.0;
+      double a_prev = st.has ? exp_smooth_alpha_from_dt(dt, poly_smooth_tau_sec_) : 0.0;
+      Poly2 blended = blend_poly(st.has ? st.last : Poly2{}, fitted, a_prev);
+      st.last = blended;
+      st.stamp = out.stamp;
+      st.has = true;
+      out.poly = blended;
+    } else {
+      out.poly = Poly2{};
+      // If we failed, do not update the filter state; keep previous for stability.
+    }
 
     // --- confidence ---
     if (!out.poly.valid || (int)P.size() < min_points_fit_) {
@@ -326,7 +468,7 @@ private:
       float continuity_raw = (float)windows_hit / (float)nwindows;
       float continuity = smoothstep(0.35f, 0.85f, continuity_raw);
 
-      // C) Fit residual
+      // C) Fit residual + expected-half sanity
       const int x_expected_lo = is_left_camera ? 0 : W/2;
       const int x_expected_hi = is_left_camera ? W/2 : W;
 
@@ -347,7 +489,6 @@ private:
 
       float fitq = 1.0f - smoothstep((float)residual_good_px_, (float)residual_bad_px_, mean_res);
 
-      // D) Side sanity
       float frac_expected = (n > 0) ? (float)in_expected / (float)n : 0.0f;
       out.frac_in_expected_half = frac_expected;
       float side = smoothstep(0.60f, 0.90f, frac_expected);
@@ -364,7 +505,7 @@ private:
       out.confidence = clamp01(conf);
     }
 
-    // Debug image (ROI-sized)
+    // Debug image
     cv::Mat dbg;
     cv::cvtColor(mask, dbg, cv::COLOR_GRAY2BGR);
     if (out.poly.valid) draw_poly(dbg, out.poly, cv::Scalar(0,255,0));
@@ -394,7 +535,6 @@ private:
       const double forward_px = (double)((r.H - 1) - y);
       const double lateral_px = x_img - cx_img;
 
-      // forward/lateral mapping
       p.pose.position.x = forward_px * mppx_;
       p.pose.position.y = lateral_px * mppy_ + cam_y_offset_m;
       p.pose.position.z = 0.0;
@@ -406,119 +546,112 @@ private:
     return path;
   }
 
+  // Robust median half-width estimate
+  double estimateHalfWidthMedian(const nav_msgs::msg::Path& left,
+                                 const nav_msgs::msg::Path& right) {
+    size_t N = std::min(left.poses.size(), right.poses.size());
+    if (N < 8) return nominal_half_width_;
 
-// Robust median half-width estimate from two boundary paths
-double estimateHalfWidthMedian(const nav_msgs::msg::Path& left,
-                               const nav_msgs::msg::Path& right) {
-  size_t N = std::min(left.poses.size(), right.poses.size());
-  if (N < 8) return nominal_half_width_;
-
-  std::vector<double> hw;
-  hw.reserve(N);
-  for (size_t i = 0; i < N; ++i) {
-    double dy = std::abs(left.poses[i].pose.position.y - right.poses[i].pose.position.y);
-    hw.push_back(0.5 * dy);
-  }
-  std::nth_element(hw.begin(), hw.begin() + hw.size()/2, hw.end());
-  double med = hw[hw.size()/2];
-  return clampd(med, half_width_min_m_, half_width_max_m_);
-}
-
-// Blend new centerline toward last centerline to avoid snapping
-nav_msgs::msg::Path smoothCenterline(const nav_msgs::msg::Path& in) {
-  if (!last_centerline_ || last_centerline_->poses.empty() || in.poses.empty()) {
-    last_centerline_ = in;
-    return in;
+    std::vector<double> hw;
+    hw.reserve(N);
+    for (size_t i = 0; i < N; ++i) {
+      double dy = std::abs(left.poses[i].pose.position.y - right.poses[i].pose.position.y);
+      hw.push_back(0.5 * dy);
+    }
+    std::nth_element(hw.begin(), hw.begin() + hw.size()/2, hw.end());
+    double med = hw[hw.size()/2];
+    return clampd(med, half_width_min_m_, half_width_max_m_);
   }
 
-  nav_msgs::msg::Path out = in;
-  size_t N = std::min(out.poses.size(), last_centerline_->poses.size());
-  const double a = clampd(center_smooth_alpha_, 0.0, 0.99);
+  // Smooth centerline (y only) to prevent snapping/jitter
+  nav_msgs::msg::Path smoothCenterline(const nav_msgs::msg::Path& in) {
+    if (!last_centerline_ || last_centerline_->poses.empty() || in.poses.empty()) {
+      last_centerline_ = in;
+      return in;
+    }
 
-  for (size_t i = 0; i < N; ++i) {
-    // Keep x from new path; smooth y to reduce lateral jitter / snapping
-    const double y_prev = last_centerline_->poses[i].pose.position.y;
-    const double y_new  = out.poses[i].pose.position.y;
-    out.poses[i].pose.position.y = a * y_prev + (1.0 - a) * y_new;
+    nav_msgs::msg::Path out = in;
+    size_t N = std::min(out.poses.size(), last_centerline_->poses.size());
+    const double a = clampd(center_smooth_alpha_, 0.0, 0.99);
+
+    for (size_t i = 0; i < N; ++i) {
+      const double y_prev = last_centerline_->poses[i].pose.position.y;
+      const double y_new  = out.poses[i].pose.position.y;
+      out.poses[i].pose.position.y = a * y_prev + (1.0 - a) * y_new;
+    }
+
+    last_centerline_ = out;
+    return out;
   }
 
-  last_centerline_ = out;
-  return out;
-}
-
-// Hysteresis-based lane usability update
-bool updateUsable(bool prev_ok, float conf) const {
-  const double on_th  = min_lane_conf_;
-  const double off_th = min_lane_conf_ - lane_conf_hyst_;
-  if (prev_ok) return conf >= off_th;
-  return conf >= on_th;
-}
+  bool updateUsable(bool prev_ok, float conf) const {
+    const double on_th  = min_lane_conf_;
+    const double off_th = min_lane_conf_ - lane_conf_hyst_;
+    if (prev_ok) return conf >= off_th;
+    return conf >= on_th;
+  }
 
   nav_msgs::msg::Path fuseCenterline(const nav_msgs::msg::Path& left,
-                                   const nav_msgs::msg::Path& right,
-                                   bool useL,
-                                   bool useR,
-                                   double half_width_m,
-                                   rclcpp::Time stamp) {
-  nav_msgs::msg::Path center;
-  center.header.frame_id = frame_;
-  center.header.stamp = stamp;
+                                    const nav_msgs::msg::Path& right,
+                                    bool useL,
+                                    bool useR,
+                                    double half_width_m,
+                                    rclcpp::Time stamp) {
+    nav_msgs::msg::Path center;
+    center.header.frame_id = frame_;
+    center.header.stamp = stamp;
 
-  const bool hasL = useL && !left.poses.empty();
-  const bool hasR = useR && !right.poses.empty();
+    const bool hasL = useL && !left.poses.empty();
+    const bool hasR = useR && !right.poses.empty();
 
-  if (hasL && hasR) {
-    size_t N = std::min(left.poses.size(), right.poses.size());
-    center.poses.reserve(N);
-    for (size_t i = 0; i < N; ++i) {
-      geometry_msgs::msg::PoseStamped p;
-      p.header = center.header;
-      p.pose.position.x = 0.5 * (left.poses[i].pose.position.x + right.poses[i].pose.position.x);
-      p.pose.position.y = 0.5 * (left.poses[i].pose.position.y + right.poses[i].pose.position.y);
-      p.pose.position.z = 0.0;
-      p.pose.orientation.w = 1.0;
-      center.poses.push_back(p);
+    if (hasL && hasR) {
+      size_t N = std::min(left.poses.size(), right.poses.size());
+      center.poses.reserve(N);
+      for (size_t i = 0; i < N; ++i) {
+        geometry_msgs::msg::PoseStamped p;
+        p.header = center.header;
+        p.pose.position.x = 0.5 * (left.poses[i].pose.position.x + right.poses[i].pose.position.x);
+        p.pose.position.y = 0.5 * (left.poses[i].pose.position.y + right.poses[i].pose.position.y);
+        p.pose.position.z = 0.0;
+        p.pose.orientation.w = 1.0;
+        center.poses.push_back(p);
+      }
+      return center;
     }
+
+    if (hasL && !hasR) {
+      center.poses.reserve(left.poses.size());
+      for (const auto& lp : left.poses) {
+        geometry_msgs::msg::PoseStamped p;
+        p.header = center.header;
+        p.pose.position.x = lp.pose.position.x;
+        p.pose.position.y = lp.pose.position.y - half_width_m;
+        p.pose.position.z = 0.0;
+        p.pose.orientation.w = 1.0;
+        center.poses.push_back(p);
+      }
+      return center;
+    }
+
+    if (!hasL && hasR) {
+      center.poses.reserve(right.poses.size());
+      for (const auto& rp : right.poses) {
+        geometry_msgs::msg::PoseStamped p;
+        p.header = center.header;
+        p.pose.position.x = rp.pose.position.x;
+        p.pose.position.y = rp.pose.position.y + half_width_m;
+        p.pose.position.z = 0.0;
+        p.pose.orientation.w = 1.0;
+        center.poses.push_back(p);
+      }
+      return center;
+    }
+
     return center;
   }
-
-  if (hasL && !hasR) {
-    center.poses.reserve(left.poses.size());
-    for (const auto& lp : left.poses) {
-      geometry_msgs::msg::PoseStamped p;
-      p.header = center.header;
-      p.pose.position.x = lp.pose.position.x;
-      p.pose.position.y = lp.pose.position.y - half_width_m;
-      p.pose.position.z = 0.0;
-      p.pose.orientation.w = 1.0;
-      center.poses.push_back(p);
-    }
-    return center;
-  }
-
-  if (!hasL && hasR) {
-    center.poses.reserve(right.poses.size());
-    for (const auto& rp : right.poses) {
-      geometry_msgs::msg::PoseStamped p;
-      p.header = center.header;
-      p.pose.position.x = rp.pose.position.x;
-      p.pose.position.y = rp.pose.position.y + half_width_m;
-      p.pose.position.z = 0.0;
-      p.pose.orientation.w = 1.0;
-      center.poses.push_back(p);
-    }
-    return center;
-  }
-
-  // neither usable
-  return center;
-}
-
 
   void leftCb(const sensor_msgs::msg::Image::ConstSharedPtr& msg) {
     auto r = processOneBoundary(msg, true);
-
-    // publish left boundary and debug
     auto left_path = boundaryToPath(r, left_cam_y_off_);
     left_pub_->publish(left_path);
 
@@ -536,8 +669,6 @@ bool updateUsable(bool prev_ok, float conf) const {
 
   void rightCb(const sensor_msgs::msg::Image::ConstSharedPtr& msg) {
     auto r = processOneBoundary(msg, false);
-
-    // publish right boundary and debug
     auto right_path = boundaryToPath(r, right_cam_y_off_);
     right_pub_->publish(right_path);
 
@@ -553,108 +684,179 @@ bool updateUsable(bool prev_ok, float conf) const {
     tryFuseAndPublish();
   }
 
-  void tryFuseAndPublish() {
-  std::optional<BoundaryResult> L, R;
-  nav_msgs::msg::Path Lp, Rp;
+  // Preference update: only changes “which single-side to trust” after sustained evidence.
+  void updatePreferredSide(bool left_ok, bool right_ok, float cL, float cR) {
+    if (left_ok && right_ok) { prefer_switch_count_ = 0; return; }
+    if (!left_ok && !right_ok) { prefer_switch_count_ = 0; return; }
 
-  {
-    std::lock_guard<std::mutex> lk(m_);
-    if (!last_left_ && !last_right_) return;  // <-- key change
+    PreferredSide observed = left_ok ? PreferredSide::LEFT : PreferredSide::RIGHT;
 
-    if (last_left_) {
-      L = last_left_;
-      Lp = last_left_path_.value_or(nav_msgs::msg::Path{});
-    }
-    if (last_right_) {
-      R = last_right_;
-      Rp = last_right_path_.value_or(nav_msgs::msg::Path{});
+    // Require meaningful confidence to switch.
+    const float switch_min_conf = 0.45f;
+    if (observed == PreferredSide::LEFT && cL < switch_min_conf) return;
+    if (observed == PreferredSide::RIGHT && cR < switch_min_conf) return;
+
+    if (observed == preferred_side_) { prefer_switch_count_ = 0; return; }
+
+    prefer_switch_count_++;
+    if (prefer_switch_count_ >= prefer_switch_threshold_) {
+      preferred_side_ = observed;
+      prefer_switch_count_ = 0;
     }
   }
 
-  // Optional sync gate: only if BOTH exist
-  if (use_sync_gate_ && L && R) {
-    const double dt = std::abs((L->stamp - R->stamp).seconds());
-    if (dt > sync_slop_sec_) return;
-  }
-
-  // Choose stamp
-  rclcpp::Time stamp;
-  if (L && R) stamp = (L->stamp > R->stamp) ? L->stamp : R->stamp;
-  else if (L) stamp = L->stamp;
-  else stamp = R->stamp;
-
-  // Update usability with hysteresis (if lane doesn't exist, it's not usable)
-  const float cL = L ? std::max(0.0f, L->confidence) : 0.0f;
-  const float cR = R ? std::max(0.0f, R->confidence) : 0.0f;
-
-  left_ok_  = L ? updateUsable(left_ok_,  cL) : false;
-  right_ok_ = R ? updateUsable(right_ok_, cR) : false;
-
-  // If neither is usable, publish empty centerline + zero confidence
-  if (!left_ok_ && !right_ok_) {
+  void publishHoldOrEmpty(rclcpp::Time stamp, float conf_val) {
+    const double dt = has_last_center_pub_ ? (this->now() - last_center_pub_time_).seconds() : 1e9;
+    if (has_last_center_pub_ && dt <= center_hold_sec_) {
+      auto held = last_center_pub_;
+      held.header.stamp = stamp;
+      center_pub_->publish(held);
+      std_msgs::msg::Float32 conf; conf.data = conf_val;
+      conf_pub_->publish(conf);
+      return;
+    }
     nav_msgs::msg::Path empty;
     empty.header.frame_id = frame_;
     empty.header.stamp = stamp;
     center_pub_->publish(empty);
+    std_msgs::msg::Float32 conf; conf.data = 0.0f;
+    conf_pub_->publish(conf);
+  }
+
+  void tryFuseAndPublish() {
+    std::optional<BoundaryResult> L, R;
+    nav_msgs::msg::Path Lp, Rp;
+
+    {
+      std::lock_guard<std::mutex> lk(m_);
+      if (!last_left_ && !last_right_) return;
+
+      if (last_left_) {
+        L = last_left_;
+        Lp = last_left_path_.value_or(nav_msgs::msg::Path{});
+      }
+      if (last_right_) {
+        R = last_right_;
+        Rp = last_right_path_.value_or(nav_msgs::msg::Path{});
+      }
+    }
+
+    // Choose stamp
+    rclcpp::Time stamp;
+    if (L && R) stamp = (L->stamp > R->stamp) ? L->stamp : R->stamp;
+    else if (L) stamp = L->stamp;
+    else stamp = R->stamp;
+
+    // Freshness gating: ignore stale boundaries (critical at higher speed)
+    const double now_s = this->now().seconds();
+    if (L && (now_s - L->stamp.seconds()) > max_boundary_age_sec_) L.reset();
+    if (R && (now_s - R->stamp.seconds()) > max_boundary_age_sec_) R.reset();
+
+    if (!L && !R) {
+      publishHoldOrEmpty(stamp, 0.05f);
+      return;
+    }
+
+    // Optional sync gate (legacy) + tighter skew check when both exist
+    if (L && R) {
+      const double dtLR = std::abs((L->stamp - R->stamp).seconds());
+      if (use_sync_gate_ && dtLR > sync_slop_sec_) return;
+      if (dtLR > max_pair_skew_sec_) {
+        // Prefer the newer one; drop the older to avoid mixing mismatched geometry
+        if (L->stamp > R->stamp) R.reset();
+        else L.reset();
+      }
+    }
+
+    const float cL = L ? std::max(0.0f, L->confidence) : 0.0f;
+    const float cR = R ? std::max(0.0f, R->confidence) : 0.0f;
+
+    left_ok_  = L ? updateUsable(left_ok_,  cL) : false;
+    right_ok_ = R ? updateUsable(right_ok_, cR) : false;
+
+    updatePreferredSide(left_ok_, right_ok_, cL, cR);
+
+    // If neither usable, hold or empty
+    if (!left_ok_ && !right_ok_) {
+      publishHoldOrEmpty(stamp, 0.05f);
+      return;
+    }
+
+    // Auto-learn nominal half-width from good dual-lane frames
+    if (auto_learn_half_width_ && left_ok_ && right_ok_) {
+      double hw_med = estimateHalfWidthMedian(Lp, Rp);
+      const double a = clampd(half_width_learn_alpha_, 0.0, 0.99);
+      nominal_half_width_ = a * nominal_half_width_ + (1.0 - a) * hw_med;
+      nominal_half_width_ = clampd(nominal_half_width_, half_width_min_m_, half_width_max_m_);
+    }
+
+    // IMPORTANT FIX for higher speed stability:
+    // Do NOT “gate out” the only usable lane based on preference.
+    // Preference is only used when BOTH lanes are usable but one is intermittently flaky.
+    bool useL = left_ok_;
+    bool useR = right_ok_;
+
+    if (useL && useR) {
+      // If both are usable, but one is much weaker, optionally follow preferred side.
+      // This reduces rapid L/R toggling on curves/occlusions.
+      const float dominance = 0.12f;
+      if (cL + dominance < cR && preferred_side_ == PreferredSide::RIGHT) useL = false;
+      if (cR + dominance < cL && preferred_side_ == PreferredSide::LEFT)  useR = false;
+    }
+
+    // Safety: if we disabled both, fall back to using the stronger lane.
+    if (!useL && !useR) {
+      if (left_ok_ && !right_ok_) useL = true;
+      else if (!left_ok_ && right_ok_) useR = true;
+      else {
+        if (cL >= cR) useL = true;
+        else useR = true;
+      }
+    }
+
+    auto center_raw = fuseCenterline(Lp, Rp, useL, useR, nominal_half_width_, stamp);
+    if (center_raw.poses.empty()) {
+      publishHoldOrEmpty(stamp, 0.05f);
+      return;
+    }
+
+    auto center = smoothCenterline(center_raw);
+
+    center_pub_->publish(center);
+    last_center_pub_ = center;
+    last_center_pub_time_ = this->now();
+    has_last_center_pub_ = !center.poses.empty();
 
     std_msgs::msg::Float32 conf;
-    conf.data = 0.0f;
+    if (useL && useR)      conf.data = std::sqrt(cL * cR);
+    else if (useL)         conf.data = cL;
+    else                   conf.data = cR;
     conf_pub_->publish(conf);
-    return;
+
+    if (debug_print_period_ms_ > 0) {
+      RCLCPP_INFO_THROTTLE(
+        get_logger(), *get_clock(), (uint64_t)debug_print_period_ms_,
+        "conf=%.3f (L=%.3f %s, R=%.3f %s) halfW=%.3f "
+        "roi_top_frac=%.2f mppx=%.4f mppy=%.4f ageL=%.2f ageR=%.2f",
+        conf.data,
+        cL, useL ? "OK" : "NO",
+        cR, useR ? "OK" : "NO",
+        nominal_half_width_,
+        roi_top_frac_, mppx_, mppy_,
+        L ? (float)(this->now() - L->stamp).seconds() : 99.0f,
+        R ? (float)(this->now() - R->stamp).seconds() : 99.0f
+      );
+    }
   }
 
-  // Auto-learn nominal half-width from good dual-lane frames
-  if (auto_learn_half_width_ && left_ok_ && right_ok_) {
-    double hw_med = estimateHalfWidthMedian(Lp, Rp);
-    // low-pass update: nominal = a*old + (1-a)*new
-    const double a = clampd(half_width_learn_alpha_, 0.0, 0.99);
-    nominal_half_width_ = a * nominal_half_width_ + (1.0 - a) * hw_med;
-    nominal_half_width_ = clampd(nominal_half_width_, half_width_min_m_, half_width_max_m_);
-  }
-
-  // Build centerline using usable lanes + learned half width
-  auto center_raw = fuseCenterline(Lp, Rp, left_ok_, right_ok_, nominal_half_width_, stamp);
-
-  // Smooth to prevent snapping / jitter
-  auto center = smoothCenterline(center_raw);
-
-  // Publish centerline
-  center_pub_->publish(center);
-
-  // Publish confidence in a mode-aware way
-  std_msgs::msg::Float32 conf;
-  if (left_ok_ && right_ok_) {
-    conf.data = std::sqrt(cL * cR);  // penalize if either weak
-  } else if (left_ok_) {
-    conf.data = cL;
-  } else {
-    conf.data = cR;
-  }
-  conf_pub_->publish(conf);
-
-  // Throttled debug print (extend your existing one safely)
-  if (debug_print_period_ms_ > 0) {
-    RCLCPP_INFO_THROTTLE(
-      get_logger(), *get_clock(), (uint64_t)debug_print_period_ms_,
-      "conf=%.3f (L=%.3f %s, R=%.3f %s) halfW=%.3f "
-      "mppx=%.4f mppy=%.4f roi_top_frac=%.2f",
-      conf.data,
-      cL, left_ok_ ? "OK" : "NO",
-      cR, right_ok_ ? "OK" : "NO",
-      nominal_half_width_,
-      mppx_, mppy_, roi_top_frac_
-    );
-  }
-}
-  // params
+  // -----------------------------
+  // Params
+  // -----------------------------
   std::string left_topic_, right_topic_, frame_;
   double roi_top_frac_{0.35};
   double mppx_{0.025}, mppy_{0.025};
   double nominal_half_width_{0.75};
   double left_cam_y_off_{0.30}, right_cam_y_off_{-0.30};
-
-  bool use_sync_gate_{false};
-  double sync_slop_sec_{0.08};
 
   int min_points_fit_{15};
   int support_pts_lo_{150};
@@ -676,7 +878,7 @@ bool updateUsable(bool prev_ok, float conf) const {
   rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr right_pub_;
   rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr conf_pub_;
 
-  // state
+  // State
   std::mutex m_;
   std::optional<BoundaryResult> last_left_;
   std::optional<BoundaryResult> last_right_;
