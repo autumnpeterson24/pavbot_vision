@@ -13,6 +13,13 @@ find_package(cv_bridge REQUIRED)
 find_package(OpenCV REQUIRED)
 find_package(vision_msgs REQUIRED)
 
+find_package(tf2 REQUIRED)
+find_package(tf2_ros REQUIRED)
+find_package(tf2_geometry_msgs REQUIRED)
+find_package(visualization_msgs REQUIRED)
+
+
+
 # Actual camera publisher ---------------------------
 add_executable(cam_pub src/cam_pub.cpp)
 ament_target_dependencies(cam_pub rclcpp image_transport cv_bridge sensor_msgs)
@@ -39,11 +46,14 @@ ament_target_dependencies(lane_detector_dual
   rclcpp
   sensor_msgs
   nav_msgs
-  geometry_msgs
   std_msgs
+  geometry_msgs
+  tf2_ros
+  tf2_geometry_msgs
   image_transport
   cv_bridge
   OpenCV
+  visualization_msgs
 )
 
 # Mock camera node (Not really used anymore)

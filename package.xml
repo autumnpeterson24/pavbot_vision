@@ -6,10 +6,9 @@
   <maintainer email="petersonautumn24@gmail.com">Autumn Peterson</maintainer>
   <license>MIT</license>
 
-  <!-- Build tools -->
   <buildtool_depend>ament_cmake</buildtool_depend>
 
-  <!-- Runtime / build dependencies -->
+  <!-- Build/run deps -->
   <depend>rclcpp</depend>
   <depend>sensor_msgs</depend>
   <depend>nav_msgs</depend>
@@ -17,14 +16,23 @@
   <depend>std_msgs</depend>
   <depend>image_transport</depend>
   <depend>cv_bridge</depend>
-  <depend>OpenCV</depend>
   <depend>vision_msgs</depend>
-  <depend>opencv2</depend>
+  <depend>visualization_msgs</depend>
 
-  <!-- Launch & TF runtime deps -->
+
+  <!-- OpenCV is found via CMake; leaving this out is usually fine in ROS 2 -->
+  <!-- If you keep it, make sure it's not duplicated elsewhere -->
+  <!-- <depend>opencv2</depend> -->
+
+  <!-- Runtime tooling -->
   <exec_depend>ros_gz_bridge</exec_depend>
   <exec_depend>rviz2</exec_depend>
+
+  <!-- TF: choose ONE style (exec_depend only) -->
+  <exec_depend>tf2</exec_depend>
   <exec_depend>tf2_ros</exec_depend>
+  <exec_depend>tf2_geometry_msgs</exec_depend>
+  
 
   <export>
     <build_type>ament_cmake</build_type>

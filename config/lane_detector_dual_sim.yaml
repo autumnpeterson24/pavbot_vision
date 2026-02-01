@@ -1,0 +1,17 @@
+lane_detector_dual:
+  ros__parameters:
+    use_sim_time: true
+
+    # ONE base_frame only (namespaced)
+    base_frame: "pavbot_test/base_link"
+    path_frame: "pavbot_test/base_link"
+
+    left_camera_topic:  "/left_cam/image_raw"
+    right_camera_topic: "/right_cam/image_raw"
+    left_camera_info_topic:  "/left_cam/camera_info"
+    right_camera_info_topic: "/right_cam/camera_info"
+
+    ground_z_in_base: 0.0
+    roi_top_frac: 0.30
+    use_sync_gate: true
+    sync_slop_sec: 0.05

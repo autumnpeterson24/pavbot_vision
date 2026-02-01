@@ -1,1 +1,0 @@
-ament_cmake_symlink_install_targets("TARGET_FILES" "/home/jetson/ros2_ws/src/lane_lab/build/lane_lab/mock_camera" "/home/jetson/ros2_ws/src/lane_lab/build/lane_lab/lane_detector" "TARGETS" "mock_camera" "lane_detector" "DESTINATION" "lib/lane_lab")

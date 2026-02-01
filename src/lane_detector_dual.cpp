@@ -16,6 +16,16 @@
 #include <algorithm>
 #include <cmath>
 
+//new ray-ground
+#include <sensor_msgs/msg/camera_info.hpp>
+#include <tf2_ros/transform_listener.h>
+#include <tf2_ros/buffer.h>
+#include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
+#include <visualization_msgs/msg/marker.hpp>
+#include <geometry_msgs/msg/point.hpp>
+
+
+
 struct Poly2 {
   double a{0}, b{0}, c{0};
   bool valid{false};
@@ -134,22 +144,35 @@ struct BoundaryResult {
 class LaneDetectorDualNode : public rclcpp::Node {
 public:
   LaneDetectorDualNode() : Node("lane_detector_dual") {
+
+
+
+    // NEW INFO TOPICS FOR TF
+    declare_parameter<std::string>("base_frame", "pavbot_test/base_link");
+    declare_parameter<std::string>("left_camera_info_topic",  "/left_cam/camera_info");
+    declare_parameter<std::string>("right_camera_info_topic", "/right_cam/camera_info");
+
+        // new ground base
+    declare_parameter<double>("ground_z_in_base", 0.0);
+    get_parameter("ground_z_in_base", ground_z_in_base_);
+
+
     // Topics / frames
     declare_parameter<std::string>("left_camera_topic",  "/left_cam/image_raw");
     declare_parameter<std::string>("right_camera_topic", "/right_cam/image_raw");
-    declare_parameter<std::string>("path_frame", "base_link");
+    declare_parameter<std::string>("path_frame", "pavbot_test/base_link");
 
     // Geometry conversion
     declare_parameter<double>("roi_top_frac", 0.3);
-    declare_parameter<double>("mppx", 0.025);
-    declare_parameter<double>("mppy", 0.025);
+    //declare_parameter<double>("mppx", 0.025);
+    //declare_parameter<double>("mppy", 0.025);
 
     // If only one boundary exists
-    declare_parameter<double>("nominal_lane_half_width_m", 0.75);
+    declare_parameter<double>("nominal_lane_half_width_m", 1.5);
 
     // Camera offsets relative to base_link (ROS: +y left, -y right)
-    declare_parameter<double>("left_cam_y_offset_m",  0.0);
-    declare_parameter<double>("right_cam_y_offset_m", -0.0);
+    //declare_parameter<double>("left_cam_y_offset_m",  0.0);
+    //declare_parameter<double>("right_cam_y_offset_m", -0.0);
 
     // Optional timestamp sync gate
     declare_parameter<bool>("use_sync_gate", false);
@@ -193,24 +216,32 @@ public:
     declare_parameter<bool>("auto_learn_half_width", true);
     declare_parameter<double>("half_width_learn_alpha", 0.90);
     declare_parameter<double>("half_width_min_m", 0.25);
-    declare_parameter<double>("half_width_max_m", 1.25);
+    declare_parameter<double>("half_width_max_m", 2.20);
 
     // Preference / hold
     declare_parameter<int>("prefer_switch_threshold", 6);
     declare_parameter<double>("center_hold_sec", 0.25);
 
+
+
     // Load params
+
+    //NEW PARAMS
+    get_parameter("base_frame", base_frame_);
+    get_parameter("left_camera_info_topic", left_info_topic_);
+    get_parameter("right_camera_info_topic", right_info_topic_);
+
     get_parameter("left_camera_topic", left_topic_);
     get_parameter("right_camera_topic", right_topic_);
     get_parameter("path_frame", frame_);
 
     get_parameter("roi_top_frac", roi_top_frac_);
-    get_parameter("mppx", mppx_);
-    get_parameter("mppy", mppy_);
+    //get_parameter("mppx", mppx_);
+    //get_parameter("mppy", mppy_);
 
     get_parameter("nominal_lane_half_width_m", nominal_half_width_);
-    get_parameter("left_cam_y_offset_m", left_cam_y_off_);
-    get_parameter("right_cam_y_offset_m", right_cam_y_off_);
+    //get_parameter("left_cam_y_offset_m", left_cam_y_off_);
+    //get_parameter("right_cam_y_offset_m", right_cam_y_off_);
 
     get_parameter("use_sync_gate", use_sync_gate_);
     get_parameter("sync_slop_sec", sync_slop_sec_);
@@ -247,7 +278,19 @@ public:
     get_parameter("center_hold_sec", center_hold_sec_);
 
     get_parameter("debug_print_hz", debug_print_hz_);
+
+
     debug_print_period_ms_ = (debug_print_hz_ <= 0.0) ? 0 : (int)(1000.0 / debug_print_hz_);
+
+
+      footprint_pub_ = create_publisher<visualization_msgs::msg::Marker>("/robot_footprint", 10);
+
+      footprint_timer_ = create_wall_timer(
+        std::chrono::milliseconds(200),
+        [this]() { publishFootprint(); }
+      );
+
+
 
     // Publishers
     center_pub_ = create_publisher<nav_msgs::msg::Path>("/lanes/centerline", 10);
@@ -269,11 +312,28 @@ public:
       std::bind(&LaneDetectorDualNode::rightCb, this, std::placeholders::_1),
       "raw");
 
+    // TF buffer/listener
+    tf_buffer_ = std::make_unique<tf2_ros::Buffer>(this->get_clock());
+    tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
+
+    // CameraInfo subs
+    left_info_sub_ = create_subscription<sensor_msgs::msg::CameraInfo>(
+      left_info_topic_, rclcpp::SensorDataQoS(),
+      [this](sensor_msgs::msg::CameraInfo::ConstSharedPtr msg){
+        K_left_ = parseK(*msg);
+      });
+
+    right_info_sub_ = create_subscription<sensor_msgs::msg::CameraInfo>(
+      right_info_topic_, rclcpp::SensorDataQoS(),
+      [this](sensor_msgs::msg::CameraInfo::ConstSharedPtr msg){
+        K_right_ = parseK(*msg);
+      });
+
     RCLCPP_INFO(get_logger(), "lane_detector_dual up.");
     RCLCPP_INFO(get_logger(), "  left : %s", left_topic_.c_str());
     RCLCPP_INFO(get_logger(), "  right: %s", right_topic_.c_str());
     RCLCPP_INFO(get_logger(), "  frame: %s", frame_.c_str());
-    RCLCPP_INFO(get_logger(), "  roi_top_frac=%.2f  mppx=%.4f  mppy=%.4f", roi_top_frac_, mppx_, mppy_);
+    RCLCPP_INFO(get_logger(), "  roi_top_frac=%.2f ", roi_top_frac_);
     RCLCPP_INFO(get_logger(), "  robust_refit=%s  poly_tau=%.3fs  max_age=%.3fs",
                 robust_refit_ ? "true" : "false", poly_smooth_tau_sec_, max_boundary_age_sec_);
   }
@@ -289,7 +349,7 @@ private:
   bool auto_learn_half_width_{true};
   double half_width_learn_alpha_{0.90};
   double half_width_min_m_{0.25};
-  double half_width_max_m_{1.25};
+  double half_width_max_m_{2.20};
 
   // Freshness / sync
   bool use_sync_gate_{false};
@@ -325,6 +385,16 @@ private:
   nav_msgs::msg::Path last_center_pub_;
   bool has_last_center_pub_{false};
 
+
+    // NEW Ray ground transform
+    // TF
+    std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
+    std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
+    rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr footprint_pub_;
+    rclcpp::TimerBase::SharedPtr footprint_timer_;
+
+
+
   // Per-side poly filter state
   struct PolyState {
     Poly2 last;
@@ -333,6 +403,175 @@ private:
   };
   PolyState left_poly_state_;
   PolyState right_poly_state_;
+
+      // CameraInfo
+    struct KIntr {
+      double fx{0}, fy{0}, cx{0}, cy{0};
+      int w{0}, h{0};
+      bool valid{false};
+    };
+
+    KIntr K_left_, K_right_;
+    rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr left_info_sub_;
+    rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr right_info_sub_;
+
+    std::string base_frame_{"base_link"};
+    std::string left_info_topic_{"/left_cam/camera_info"};
+    std::string right_info_topic_{"/right_cam/camera_info"};
+
+  static KIntr parseK(const sensor_msgs::msg::CameraInfo& ci) {
+    KIntr k;
+    k.w = (int)ci.width;
+    k.h = (int)ci.height;
+    if (ci.k[0] <= 1e-9 || ci.k[4] <= 1e-9) return k;
+    k.fx = ci.k[0];
+    k.fy = ci.k[4];
+    k.cx = ci.k[2];
+    k.cy = ci.k[5];
+    k.valid = true;
+    return k;
+  }
+
+  void publishFootprint() {
+    visualization_msgs::msg::Marker m;
+    m.header.frame_id = base_frame_;          // or "pavbot_test/base_link"
+    m.header.stamp = now();
+
+    m.ns = "footprint";
+    m.id = 0;
+    m.type = visualization_msgs::msg::Marker::LINE_STRIP;
+    m.action = visualization_msgs::msg::Marker::ADD;
+
+    m.pose.orientation.w = 1.0;
+
+    m.scale.x = 0.05;      // line width
+
+    m.color.r = 1.0;
+    m.color.g = 0.0;
+    m.color.b = 0.0;
+    m.color.a = 1.0;
+
+    geometry_msgs::msg::Point p;
+    p.z = 0.0;
+
+    // rectangle footprint (adjust to your robot dimensions)
+    p.x = -0.5; p.y = -0.35; m.points.push_back(p);
+    p.x =  0.5; p.y = -0.35; m.points.push_back(p);
+    p.x =  0.5; p.y =  0.35; m.points.push_back(p);
+    p.x = -0.5; p.y =  0.35; m.points.push_back(p);
+    p.x = -0.5; p.y = -0.35; m.points.push_back(p);
+
+    footprint_pub_->publish(m);
+  }
+
+
+
+  // Project pixel (u,v) from camera frame into base_frame ground plane z=0.
+// Returns true if intersection is valid and in front of camera.
+bool pixelToGroundBase(const KIntr& K,
+                       const std::string& cam_frame,
+                       const rclcpp::Time& stamp,
+                       double u, double v,
+                       double& Xb, double& Yb)
+{
+  if (!K.valid) {
+    RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 1000,
+      "pixelToGroundBase FAIL (K invalid) cam=%s", cam_frame.c_str());
+    return false;
+  }
+
+  // 1) pixel -> normalized ray in *some* camera frame
+  // Image normalized coordinates:
+  const double xr = (u - K.cx) / K.fx;   // + right in image
+  const double yr = (v - K.cy) / K.fy;   // + down in image
+
+  // ---- Ray convention mapping ----
+  // If your TF frame is a typical "camera link" frame (Gazebo often):
+  //   +X forward, +Y left, +Z up
+  // while image math is "optical":
+  //   +X right, +Y down, +Z forward
+  //
+  // This maps optical -> link:
+  //   forward = z_opt = 1
+  //   left    = -x_opt = -xr
+  //   up      = -y_opt = -yr
+  tf2::Vector3 dir_cam(1.0, -xr, -yr);
+  dir_cam.normalize();
+
+  // 2) lookup TF: base_frame <- cam_frame at the image timestamp
+  geometry_msgs::msg::TransformStamped T;
+  try {
+    T = tf_buffer_->lookupTransform(base_frame_, cam_frame, stamp,
+                                    rclcpp::Duration::from_seconds(0.05));
+  } catch (const tf2::TransformException& ex) {
+    RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 1000,
+      "pixelToGroundBase FAIL (TF lookup) base=%s cam=%s err=%s",
+      base_frame_.c_str(), cam_frame.c_str(), ex.what());
+    return false;
+  }
+
+  tf2::Transform tf_base_from_cam;
+  tf2::fromMsg(T.transform, tf_base_from_cam);
+
+  // Camera origin in base, and ray direction in base
+  const tf2::Vector3 o_base = tf_base_from_cam.getOrigin();
+  const tf2::Vector3 d_base = tf_base_from_cam.getBasis() * dir_cam;
+
+  // 3) Intersect with ground plane z=0 in base frame
+  const double eps = 1e-6;
+
+  if (std::abs(d_base.z()) < eps) {
+    RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 1000,
+      "pixelToGroundBase FAIL (parallel) cam=%s u=%.1f v=%.1f "
+      "o=(%.3f %.3f %.3f) d=(%.3f %.3f %.3f)",
+      cam_frame.c_str(), u, v,
+      o_base.x(), o_base.y(), o_base.z(),
+      d_base.x(), d_base.y(), d_base.z());
+    return false;
+  }
+
+  const double s = (ground_z_in_base_ - o_base.z()) / d_base.z();
+
+  if (!(s > 0.0)) {
+    RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 1000,
+      "pixelToGroundBase FAIL (behind) cam=%s u=%.1f v=%.1f "
+      "s=%.3f o.z=%.3f d.z=%.3f o=(%.3f %.3f %.3f) d=(%.3f %.3f %.3f)",
+      cam_frame.c_str(), u, v,
+      s, o_base.z(), d_base.z(),
+      o_base.x(), o_base.y(), o_base.z(),
+      d_base.x(), d_base.y(), d_base.z());
+    return false;
+  }
+
+  const tf2::Vector3 p = o_base + s * d_base;
+
+  // Optional: reject absurd ranges (helps with sky pixels / bad conventions)
+  if (p.x() < 0.0 || p.x() > 50.0) {
+    RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 1000,
+      "pixelToGroundBase FAIL (range) cam=%s u=%.1f v=%.1f "
+      "p=(%.3f %.3f %.3f) s=%.3f",
+      cam_frame.c_str(), u, v,
+      p.x(), p.y(), p.z(), s);
+    return false;
+  }
+
+  // Success
+  Xb = p.x();
+  Yb = p.y();
+
+  // Throttled success print (optional but nice during bring-up)
+  RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 1000,
+    "pixelToGroundBase OK cam=%s u=%.1f v=%.1f -> base (%.3f %.3f) "
+    "o=(%.3f %.3f %.3f) d=(%.3f %.3f %.3f) s=%.3f",
+    cam_frame.c_str(), u, v, Xb, Yb,
+    o_base.x(), o_base.y(), o_base.z(),
+    d_base.x(), d_base.y(), d_base.z(),
+    s);
+
+  return true;
+}
+
+
 
   // -----------------------------
   // Core processing
@@ -514,37 +753,74 @@ private:
     return out;
   }
 
-  nav_msgs::msg::Path boundaryToPath(const BoundaryResult& r, double cam_y_offset_m) {
-    nav_msgs::msg::Path path;
-    path.header.frame_id = frame_;
-    path.header.stamp = r.stamp;
+nav_msgs::msg::Path boundaryToPathProjected(const BoundaryResult& r,
+                                           const KIntr& K,
+                                           const std::string& cam_frame)
+{
+  nav_msgs::msg::Path path;
+  path.header.frame_id = base_frame_;
+  path.header.stamp = r.stamp;
 
-    if (!r.poly.valid || r.W <= 0 || r.H <= 0) return path;
-
-    const double cx_img = 0.5 * (double)r.W;
-
-    for (int y = r.H - 1; y >= 0; y -= 5) {
-      double x_img = r.poly.eval((double)y);
-      if (!std::isfinite(x_img)) continue;
-
-      x_img = std::min(std::max(x_img, 0.0), (double)(r.W - 1));
-
-      geometry_msgs::msg::PoseStamped p;
-      p.header = path.header;
-
-      const double forward_px = (double)((r.H - 1) - y);
-      const double lateral_px = x_img - cx_img;
-
-      p.pose.position.x = forward_px * mppx_;
-      p.pose.position.y = lateral_px * mppy_ + cam_y_offset_m;
-      p.pose.position.z = 0.0;
-      p.pose.orientation.w = 1.0;
-
-      path.poses.push_back(p);
-    }
-
+  // Basic guards
+  if (!r.poly.valid || r.W <= 0 || r.H <= 0) {
+    RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 1000,
+      "boundaryToPathProjected: poly_invalid_or_bad_dims cam=%s poly=%d W=%d H=%d roi_top=%d pts=%d",
+      cam_frame.c_str(), (int)r.poly.valid, r.W, r.H, r.roi_top, r.num_points);
     return path;
   }
+  if (!K.valid) {
+    RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 1000,
+      "boundaryToPathProjected: K invalid cam=%s (no camera_info yet?)",
+      cam_frame.c_str());
+    return path;
+  }
+
+  const double roi_y0 = (double)r.roi_top;
+
+  int n_try = 0;
+  int n_ok  = 0;
+
+  // Sample along the fitted poly in ROI pixel coords, bottom -> top
+  for (int y_roi = r.H - 1; y_roi >= 0; y_roi -= 5) {
+    n_try++;
+
+    const double x_roi = r.poly.eval((double)y_roi);
+    if (!std::isfinite(x_roi)) continue;
+
+    // Convert ROI pixel -> full image pixel (u,v)
+    const double u = clampd(x_roi, 0.0, (double)(r.W - 1));
+    const double v = clampd(roi_y0 + (double)y_roi, 0.0, (double)(r.roi_top + r.H - 1));
+
+    double Xb = 0.0, Yb = 0.0;
+    if (!pixelToGroundBase(K, cam_frame, r.stamp, u, v, Xb, Yb)) {
+      continue;
+    }
+
+    // Optional sanity (prevents a few bad rays from polluting the path)
+    if (!std::isfinite(Xb) || !std::isfinite(Yb)) continue;
+    if (Xb < 0.0 || Xb > 50.0) continue;
+
+    geometry_msgs::msg::PoseStamped p;
+    p.header = path.header;
+    p.pose.position.x = Xb;
+    p.pose.position.y = Yb;
+    p.pose.position.z = 0.0;
+    p.pose.orientation.w = 1.0;
+    path.poses.push_back(p);
+    n_ok++;
+  }
+
+  RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 1000,
+    "project cam=%s -> base=%s : try=%d ok=%d poly=%d pts=%d roi_top=%d W=%d H=%d K=%d",
+    cam_frame.c_str(), base_frame_.c_str(),
+    n_try, n_ok, (int)r.poly.valid, r.num_points,
+    r.roi_top, r.W, r.H, (int)K.valid
+  );
+
+  return path;
+}
+
+
 
   // Robust median half-width estimate
   double estimateHalfWidthMedian(const nav_msgs::msg::Path& left,
@@ -560,6 +836,14 @@ private:
     }
     std::nth_element(hw.begin(), hw.begin() + hw.size()/2, hw.end());
     double med = hw[hw.size()/2];
+
+    RCLCPP_INFO_THROTTLE(
+      get_logger(), *get_clock(), 1000,
+      "halfwidth debug: N=%zu  med_half=%.3f  -> med_dy=%.3f",
+      N, med, 2.0*med
+    );
+
+
     return clampd(med, half_width_min_m_, half_width_max_m_);
   }
 
@@ -598,7 +882,7 @@ private:
                                     double half_width_m,
                                     rclcpp::Time stamp) {
     nav_msgs::msg::Path center;
-    center.header.frame_id = frame_;
+    center.header.frame_id = base_frame_;
     center.header.stamp = stamp;
 
     const bool hasL = useL && !left.poses.empty();
@@ -652,7 +936,8 @@ private:
 
   void leftCb(const sensor_msgs::msg::Image::ConstSharedPtr& msg) {
     auto r = processOneBoundary(msg, true);
-    auto left_path = boundaryToPath(r, left_cam_y_off_);
+    const std::string cam_frame = msg->header.frame_id; // best: use actual image frame
+    auto left_path = boundaryToPathProjected(r, K_left_, cam_frame);
     left_pub_->publish(left_path);
 
     if (!r.debug_bgr.empty()) {
@@ -669,7 +954,8 @@ private:
 
   void rightCb(const sensor_msgs::msg::Image::ConstSharedPtr& msg) {
     auto r = processOneBoundary(msg, false);
-    auto right_path = boundaryToPath(r, right_cam_y_off_);
+    const std::string cam_frame = msg->header.frame_id;
+    auto right_path = boundaryToPathProjected(r, K_right_, cam_frame);
     right_pub_->publish(right_path);
 
     if (!r.debug_bgr.empty()) {
@@ -716,7 +1002,7 @@ private:
       return;
     }
     nav_msgs::msg::Path empty;
-    empty.header.frame_id = frame_;
+    empty.header.frame_id = base_frame_;
     empty.header.stamp = stamp;
     center_pub_->publish(empty);
     std_msgs::msg::Float32 conf; conf.data = 0.0f;
@@ -836,13 +1122,12 @@ private:
     if (debug_print_period_ms_ > 0) {
       RCLCPP_INFO_THROTTLE(
         get_logger(), *get_clock(), (uint64_t)debug_print_period_ms_,
-        "conf=%.3f (L=%.3f %s, R=%.3f %s) halfW=%.3f "
-        "roi_top_frac=%.2f mppx=%.4f mppy=%.4f ageL=%.2f ageR=%.2f",
+        "conf=%.3f (L=%.3f %s, R=%.3f %s) halfW=%.3f roi_top_frac=%.2f ageL=%.2f ageR=%.2f",
         conf.data,
         cL, useL ? "OK" : "NO",
         cR, useR ? "OK" : "NO",
         nominal_half_width_,
-        roi_top_frac_, mppx_, mppy_,
+        roi_top_frac_,
         L ? (float)(this->now() - L->stamp).seconds() : 99.0f,
         R ? (float)(this->now() - R->stamp).seconds() : 99.0f
       );
@@ -852,11 +1137,13 @@ private:
   // -----------------------------
   // Params
   // -----------------------------
+
+
   std::string left_topic_, right_topic_, frame_;
   double roi_top_frac_{0.35};
-  double mppx_{0.025}, mppy_{0.025};
-  double nominal_half_width_{0.75};
-  double left_cam_y_off_{0.30}, right_cam_y_off_{-0.30};
+  //double mppx_{0.025}, mppy_{0.025};
+  double nominal_half_width_{1.50};
+  //double left_cam_y_off_{0.30}, right_cam_y_off_{-0.30};
 
   int min_points_fit_{15};
   int support_pts_lo_{150};
@@ -865,6 +1152,9 @@ private:
   double residual_bad_px_{18.0};
   double curv_good_{1e-4};
   double curv_bad_{8e-4};
+
+  double ground_z_in_base_{0.0};
+
 
   double debug_print_hz_{1.0};
   int debug_print_period_ms_{1000};

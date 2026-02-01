@@ -1,1 +1,0 @@
-/home/jetson/ros2_ws/src/lane_lab/launch/offline_lane_demo.launch.py
