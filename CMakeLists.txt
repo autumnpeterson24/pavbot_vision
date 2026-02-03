@@ -20,10 +20,31 @@ find_package(visualization_msgs REQUIRED)
 
 
 
+
 # Actual camera publisher ---------------------------
 add_executable(cam_pub src/cam_pub.cpp)
-ament_target_dependencies(cam_pub rclcpp image_transport cv_bridge sensor_msgs)
+ament_target_dependencies(cam_pub 
+  rclcpp image_transport 
+  cv_bridge 
+  sensor_msgs
+  )
 target_link_libraries(cam_pub ${OpenCV_LIBS})
+
+
+# Pothole detector dual node ------------------------------
+add_executable(pothole_detector_dual src/pothole_detector_dual.cpp)
+ament_target_dependencies(pothole_detector_dual
+  rclcpp
+  sensor_msgs
+  geometry_msgs
+  visualization_msgs
+  std_msgs
+  image_transport
+  cv_bridge
+  tf2
+  tf2_ros
+  tf2_geometry_msgs
+)
 
 # Pothole detector node ------------------------------
 add_executable(pothole_detector src/pothole_detector.cpp)
@@ -74,6 +95,7 @@ install(TARGETS
   cam_pub
   lane_detector_dual
   pothole_detector
+  pothole_detector_dual
 
   DESTINATION lib/${PROJECT_NAME}
 )

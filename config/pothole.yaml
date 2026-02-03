@@ -1,0 +1,11 @@
+pothole_detector_dual:
+  ros__parameters:
+    roi_top_frac: 0.20
+    sat_max_for_white: 140
+    val_min_for_white: 160
+    open_k: 3
+    close_k: 9
+    min_area_px: 50.0
+    min_circularity: 0.50
+    max_aspect_ratio: 2.0
+    ground_z_in_base: <match your lane node>
