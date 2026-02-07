@@ -1,0 +1,22 @@
+pothole_detector_dual:
+  ros__parameters:
+    use_sim_time: true
+
+    # Frames
+    base_frame: "pavbot_test/base_link"
+    ground_z_in_base: 0.0
+
+    # Topics (must match your bridge remaps)
+    left_topic: "/left_cam/image_raw"
+    right_topic: "/right_cam/image_raw"
+    left_info_topic: "/left_cam/camera_info"
+    right_info_topic: "/right_cam/camera_info"
+
+    # ROI & thresholding (tune as needed)
+    roi_top_frac: 0.25
+    sat_max_for_white: 60
+    val_min_for_white: 220
+
+    # Morphology (tune as needed)
+    open_k: 9
+    close_k: 7
