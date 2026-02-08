@@ -46,6 +46,16 @@ ament_target_dependencies(pothole_detector_dual
   tf2_geometry_msgs
 )
 
+# Pothole PoseArray -> PointCloud2 bridge ------------------------------
+add_executable(pothole_points_bridge src/pothole_points_bridge.cpp)
+ament_target_dependencies(pothole_points_bridge
+  rclcpp
+  geometry_msgs
+  sensor_msgs
+)
+target_compile_features(pothole_points_bridge PUBLIC cxx_std_17)
+
+
 # Pothole detector node ------------------------------
 add_executable(pothole_detector src/pothole_detector.cpp)
 ament_target_dependencies(pothole_detector
@@ -96,6 +106,7 @@ install(TARGETS
   lane_detector_dual
   pothole_detector
   pothole_detector_dual
+  pothole_points_bridge
 
   DESTINATION lib/${PROJECT_NAME}
 )

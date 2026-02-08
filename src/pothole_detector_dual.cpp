@@ -26,7 +26,7 @@ public:
   PotholeDetectorDual()
   : Node("pothole_detector_dual")
   {
-    declare_parameter<std::string>("base_frame", "pavbot_test/base_link");
+    declare_parameter<std::string>("base_frame", "base_link");
     declare_parameter<std::string>("left_topic",  "/left_cam/image_raw");
     declare_parameter<std::string>("right_topic", "/right_cam/image_raw");
     declare_parameter<std::string>("left_info_topic",  "/left_cam/camera_info");
@@ -136,6 +136,13 @@ private:
     double x{0}, y{0};
   };
 
+  double minAreaPxAtRange(const KIntr& K, double range_m) const {
+  // expected pixel radius ≈ fx * r / range
+  const double rp = (K.fx * pothole_r_) / std::max(0.25, range_m);
+  const double Ap = M_PI * rp * rp;
+  return 0.15 * Ap;  // accept if >= 15% of expected area (tune 0.10–0.25)
+}
+
   bool pixelToGroundBase(const KIntr& K,
                          const std::string& cam_frame,
                          const rclcpp::Time& stamp,
@@ -227,38 +234,69 @@ private:
 
     // --- Filter contours, create detections, draw accepted ones (green) ---
     for (const auto& c : contours) {
-        double area = cv::contourArea(c);
-        if (area < min_area_ || area > max_area_) continue;
+      double area = cv::contourArea(c);
+      if (area > max_area_) continue;   // keep this, remove min_area_ gate
 
-        double per = cv::arcLength(c, true);
-        if (per <= 1e-6) continue;
+      double per = cv::arcLength(c, true);
+      if (per <= 1e-6) continue;
 
-        double circ = 4.0 * M_PI * area / (per * per);
-        if (circ < min_circ_) continue;
+      cv::Moments m = cv::moments(c);
+      if (std::abs(m.m00) < 1e-6) continue;
 
-        cv::Rect bb = cv::boundingRect(c);
-        double ar = (bb.height > 0) ? (double)bb.width / (double)bb.height : 99.0;
-        ar = (ar < 1.0) ? 1.0 / ar : ar;
-        if (ar > max_ar_) continue;
+      double cx = m.m10 / m.m00;
+      double cy = m.m01 / m.m00;
 
-        cv::Moments m = cv::moments(c);
-        if (std::abs(m.m00) < 1e-6) continue;
+      cv::Rect bb = cv::boundingRect(c);
+      double ar = (bb.height > 0) ? (double)bb.width / (double)bb.height : 99.0;
+      ar = (ar < 1.0) ? 1.0 / ar : ar;
 
-        double cx = m.m10 / m.m00;
-        double cy = m.m01 / m.m00;
+      double circ = 4.0 * M_PI * area / (per * per);
 
-        // Draw accepted bbox + centroid (green) on overlay
-        cv::rectangle(overlay, bb, cv::Scalar(0, 255, 0), 2);
-        cv::circle(overlay, cv::Point((int)cx, (int)cy), 4, cv::Scalar(0, 255, 0), -1);
+      // Full-image pixel coords (important for ray/ground projection)
+      double u_full = std::clamp(cx, 0.0, (double)(roi.cols - 1));
+      double v_full = std::clamp((double)roi_top + cy, 0.0, (double)(H - 1));
 
-        Det2D d;
-        d.stamp = msg->header.stamp;
-        d.cam_frame = msg->header.frame_id;
-        d.u = std::clamp(cx, 0.0, (double)(roi.cols - 1));
-        d.v = std::clamp((double)roi_top + cy, 0.0, (double)(H - 1));
-        d.area = area;
-        out.push_back(d);
+      // Compute range first
+      double Xb = 0.0, Yb = 0.0;
+      double range_m = 999.0;
+      if (pixelToGroundBase(K, msg->header.frame_id, msg->header.stamp, u_full, v_full, Xb, Yb)) {
+        range_m = std::hypot(Xb, Yb);
+      }
+
+
+      // Dynamic area gate (THIS is the big one)
+      double min_area_dyn = minAreaPxAtRange(K, range_m);
+
+
+      RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 1000,
+      "range=%.2f area=%.1f min_area_dyn=%.1f circ=%.2f ar=%.2f",
+      range_m, area, min_area_dyn, circ, ar);
+
+
+      if (area < min_area_dyn) continue;
+
+      // Dynamic shape gates (after range)
+      double min_circ_dyn = min_circ_;
+      double max_ar_dyn   = max_ar_;
+      if (range_m > 6.0)  { min_circ_dyn = 0.45; max_ar_dyn = 2.2; }
+      if (range_m > 10.0) { min_circ_dyn = 0.35; max_ar_dyn = 3.0; }
+
+      if (circ < min_circ_dyn) continue;
+      if (ar > max_ar_dyn) continue;
+
+      // Draw accepted bbox + centroid
+      cv::rectangle(overlay, bb, cv::Scalar(0, 255, 0), 2);
+      cv::circle(overlay, cv::Point((int)cx, (int)cy), 4, cv::Scalar(0, 255, 0), -1);
+
+      Det2D d;
+      d.stamp = msg->header.stamp;
+      d.cam_frame = msg->header.frame_id;
+      d.u = u_full;
+      d.v = v_full;
+      d.area = area;
+      out.push_back(d);
     }
+
 
     // Debug mask publish (mono8)
     auto& mask_pub    = is_left ? dbg_mask_left_pub_    : dbg_mask_right_pub_;

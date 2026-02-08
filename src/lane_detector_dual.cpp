@@ -148,7 +148,7 @@ public:
 
 
     // NEW INFO TOPICS FOR TF
-    declare_parameter<std::string>("base_frame", "pavbot_test/base_link");
+    declare_parameter<std::string>("base_frame", "base_link");
     declare_parameter<std::string>("left_camera_info_topic",  "/left_cam/camera_info");
     declare_parameter<std::string>("right_camera_info_topic", "/right_cam/camera_info");
 
@@ -160,7 +160,7 @@ public:
     // Topics / frames
     declare_parameter<std::string>("left_camera_topic",  "/left_cam/image_raw");
     declare_parameter<std::string>("right_camera_topic", "/right_cam/image_raw");
-    declare_parameter<std::string>("path_frame", "pavbot_test/base_link");
+    declare_parameter<std::string>("path_frame", "base_link");
 
     // Geometry conversion
     declare_parameter<double>("roi_top_frac", 0.3);
@@ -221,6 +221,12 @@ public:
     // Preference / hold
     declare_parameter<int>("prefer_switch_threshold", 6);
     declare_parameter<double>("center_hold_sec", 0.25);
+
+    declare_parameter<std::string>("left_camera_frame",  "left_camera_link/left_cam");
+    declare_parameter<std::string>("right_camera_frame", "right_camera_link/right_cam");
+    get_parameter("left_camera_frame",  left_cam_frame_);
+    get_parameter("right_camera_frame", right_cam_frame_);
+
 
 
 
@@ -419,6 +425,9 @@ private:
     std::string left_info_topic_{"/left_cam/camera_info"};
     std::string right_info_topic_{"/right_cam/camera_info"};
 
+    std::string left_cam_frame_{"left_camera_link/left_cam"};
+    std::string right_cam_frame_{"right_camera_link/right_cam"};
+
   static KIntr parseK(const sensor_msgs::msg::CameraInfo& ci) {
     KIntr k;
     k.w = (int)ci.width;
@@ -434,7 +443,7 @@ private:
 
   void publishFootprint() {
     visualization_msgs::msg::Marker m;
-    m.header.frame_id = base_frame_;          // or "pavbot_test/base_link"
+    m.header.frame_id = base_frame_;          // or "base_link"
     m.header.stamp = now();
 
     m.ns = "footprint";
@@ -936,8 +945,8 @@ nav_msgs::msg::Path boundaryToPathProjected(const BoundaryResult& r,
 
   void leftCb(const sensor_msgs::msg::Image::ConstSharedPtr& msg) {
     auto r = processOneBoundary(msg, true);
-    const std::string cam_frame = msg->header.frame_id; // best: use actual image frame
-    auto left_path = boundaryToPathProjected(r, K_left_, cam_frame);
+    //const std::string cam_frame = msg->header.frame_id; // best: use actual image frame
+    auto left_path = boundaryToPathProjected(r, K_left_, left_cam_frame_);
     left_pub_->publish(left_path);
 
     if (!r.debug_bgr.empty()) {
@@ -954,8 +963,8 @@ nav_msgs::msg::Path boundaryToPathProjected(const BoundaryResult& r,
 
   void rightCb(const sensor_msgs::msg::Image::ConstSharedPtr& msg) {
     auto r = processOneBoundary(msg, false);
-    const std::string cam_frame = msg->header.frame_id;
-    auto right_path = boundaryToPathProjected(r, K_right_, cam_frame);
+    //const std::string cam_frame = msg->header.frame_id;
+    auto right_path = boundaryToPathProjected(r, K_right_, right_cam_frame_);
     right_pub_->publish(right_path);
 
     if (!r.debug_bgr.empty()) {
