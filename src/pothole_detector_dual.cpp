@@ -55,6 +55,25 @@ public:
     // Fusion
     declare_parameter<double>("fuse_dist_m", 0.40);
 
+    declare_parameter<std::string>("left_cam_frame",  "left_camera_link/left_cam");
+    declare_parameter<std::string>("right_cam_frame", "right_camera_link/right_cam");
+
+    //output frame to odom for costmap
+    declare_parameter<std::string>("output_frame", "odom");
+
+    declare_parameter<bool>("use_sync_gate", true);
+    declare_parameter<double>("sync_slop_sec", 0.05);
+
+
+    get_parameter("use_sync_gate", use_sync_gate_);
+    get_parameter("sync_slop_sec", sync_slop_sec_);
+
+    get_parameter("output_frame", output_frame_);
+
+    get_parameter("left_cam_frame", left_cam_frame_);
+    get_parameter("right_cam_frame", right_cam_frame_);
+
+
     get_parameter("base_frame", base_frame_);
     get_parameter("left_topic", left_topic_);
     get_parameter("right_topic", right_topic_);
@@ -140,7 +159,7 @@ private:
   // expected pixel radius ≈ fx * r / range
   const double rp = (K.fx * pothole_r_) / std::max(0.25, range_m);
   const double Ap = M_PI * rp * rp;
-  return 0.15 * Ap;  // accept if >= 15% of expected area (tune 0.10–0.25)
+  return 0.05 * Ap;  // accept if >= 15% of expected area (tune 0.10–0.25)
 }
 
   bool pixelToGroundBase(const KIntr& K,
@@ -160,8 +179,12 @@ private:
 
     geometry_msgs::msg::TransformStamped T;
     try {
-      T = tf_buffer_->lookupTransform(base_frame_, cam_frame, stamp,
-                                      rclcpp::Duration::from_seconds(0.05));
+          T = tf_buffer_->lookupTransform(
+                base_frame_,
+                cam_frame,
+                stamp,
+                rclcpp::Duration::from_seconds(0.05));
+
     } catch (...) {
       return false;
     }
@@ -190,6 +213,8 @@ private:
     {
     std::vector<Det2D> out;
     if (!K.valid) return out;
+    const std::string& cam_frame = is_left ? left_cam_frame_ : right_cam_frame_;
+
 
     cv::Mat bgr = cv_bridge::toCvShare(msg, "bgr8")->image;
     const int H = bgr.rows;
@@ -259,7 +284,7 @@ private:
       // Compute range first
       double Xb = 0.0, Yb = 0.0;
       double range_m = 999.0;
-      if (pixelToGroundBase(K, msg->header.frame_id, msg->header.stamp, u_full, v_full, Xb, Yb)) {
+      if (pixelToGroundBase(K, cam_frame, msg->header.stamp, u_full, v_full, Xb, Yb)) {
         range_m = std::hypot(Xb, Yb);
       }
 
@@ -273,7 +298,7 @@ private:
       range_m, area, min_area_dyn, circ, ar);
 
 
-      if (area < min_area_dyn) continue;
+      if (area < std::max(min_area_, min_area_dyn)) continue;  // not using dynamic right now
 
       // Dynamic shape gates (after range)
       double min_circ_dyn = min_circ_;
@@ -290,7 +315,7 @@ private:
 
       Det2D d;
       d.stamp = msg->header.stamp;
-      d.cam_frame = msg->header.frame_id;
+      d.cam_frame = cam_frame;
       d.u = u_full;
       d.v = v_full;
       d.area = area;
@@ -359,7 +384,7 @@ private:
     }
 
     geometry_msgs::msg::PoseArray poses;
-    poses.header.frame_id = base_frame_;
+    poses.header.frame_id = output_frame_;
     poses.header.stamp = stamp;
 
     std_msgs::msg::Float32MultiArray radii;
@@ -367,18 +392,45 @@ private:
 
     visualization_msgs::msg::MarkerArray ma;
 
+    // transform each fused base_link point to output_frame (odom)
     for (size_t i = 0; i < fused.size(); ++i) {
+
+      geometry_msgs::msg::PointStamped p_base;
+      p_base.header.frame_id = base_frame_;   // "base_link"
+      p_base.header.stamp = stamp;
+      p_base.point.x = fused[i].x;
+      p_base.point.y = fused[i].y;
+      p_base.point.z = 0.0;
+
+      geometry_msgs::msg::PointStamped p_out;
+
+
+
+      
+      try {
+        p_out = tf_buffer_->transform(
+          p_base,
+          output_frame_,
+          tf2::durationFromSec(0.05));
+
+      } catch (const tf2::TransformException & ex) {
+        RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 1000,
+                            "TF transform %s -> %s failed: %s",
+                            base_frame_.c_str(), output_frame_.c_str(), ex.what());
+        continue;
+      }
+
       geometry_msgs::msg::Pose pose;
-      pose.position.x = fused[i].x;
-      pose.position.y = fused[i].y;
+      pose.position.x = p_out.point.x;
+      pose.position.y = p_out.point.y;
       pose.position.z = 0.0;
       pose.orientation.w = 1.0;
-      poses.poses.push_back(pose);
 
+      poses.poses.push_back(pose);
       radii.data.push_back((float)pothole_r_);
 
       visualization_msgs::msg::Marker m;
-      m.header = poses.header;
+      m.header = poses.header;               // frame_id = odom, stamp = stamp
       m.ns = "potholes";
       m.id = (int)i;
       m.type = visualization_msgs::msg::Marker::CYLINDER;
@@ -388,30 +440,72 @@ private:
       m.scale.y = 2.0 * pothole_r_;
       m.scale.z = 0.02;
       m.color.r = 1.0; m.color.g = 1.0; m.color.b = 1.0; m.color.a = 0.6;
+
       ma.markers.push_back(m);
     }
 
     poses_pub_->publish(poses);
     radii_pub_->publish(radii);
     markers_pub_->publish(ma);
+
   }
 
-    void onLeft(const sensor_msgs::msg::Image::ConstSharedPtr& msg) {
-    auto dets = detectInImage(msg, K_left_, true);
-    { std::lock_guard<std::mutex> lk(m_); last_left_ = std::move(dets); }
-    fuseAndPublish(msg->header.stamp);
+  void maybeFusePublish(const rclcpp::Time& stamp) {
+    if (!use_sync_gate_) {
+      fuseAndPublish(stamp);
+      return;
     }
 
-    void onRight(const sensor_msgs::msg::Image::ConstSharedPtr& msg) {
-    auto dets = detectInImage(msg, K_right_, false);
-    { std::lock_guard<std::mutex> lk(m_); last_right_ = std::move(dets); }
-    fuseAndPublish(msg->header.stamp);
+    rclcpp::Time ls, rs;
+    bool hl, hr;
+    {
+      std::lock_guard<std::mutex> lk(m_);
+      ls = last_left_stamp_;
+      rs = last_right_stamp_;
+      hl = have_left_;
+      hr = have_right_;
     }
+    if (!(hl && hr)) return;
+
+    const double dt = std::abs((ls - rs).seconds());
+    if (dt > sync_slop_sec_) return;
+
+    // Use the newer stamp for publishing
+    fuseAndPublish((ls > rs) ? ls : rs);
+  }
+
+
+  void onLeft(const sensor_msgs::msg::Image::ConstSharedPtr& msg) {
+    auto dets = detectInImage(msg, K_left_, true);
+    {
+      std::lock_guard<std::mutex> lk(m_);
+      last_left_ = std::move(dets);
+      last_left_stamp_ = msg->header.stamp;
+      have_left_ = true;
+    }
+    maybeFusePublish(msg->header.stamp);
+  }
+
+  void onRight(const sensor_msgs::msg::Image::ConstSharedPtr& msg) {
+    auto dets = detectInImage(msg, K_right_, false);
+    {
+      std::lock_guard<std::mutex> lk(m_);
+      last_right_ = std::move(dets);
+      last_right_stamp_ = msg->header.stamp;
+      have_right_ = true;
+    }
+    maybeFusePublish(msg->header.stamp);
+  }
+
 
 
   // Params
   std::string base_frame_;
   std::string left_topic_, right_topic_, left_info_topic_, right_info_topic_;
+
+  std::string left_cam_frame_;
+  std::string right_cam_frame_;
+
   double ground_z_in_base_{0.0};
   double roi_top_frac_{0.35};
 
@@ -444,11 +538,43 @@ private:
     image_transport::Publisher dbg_mask_right_pub_;
     image_transport::Publisher dbg_overlay_left_pub_;
     image_transport::Publisher dbg_overlay_right_pub_;
+  std::string output_frame_;
+
+  // Sync gate params
+  bool use_sync_gate_{true};
+  double sync_slop_sec_{0.05};
+
+  rclcpp::Time last_left_stamp_{0,0,RCL_ROS_TIME};
+  rclcpp::Time last_right_stamp_{0,0,RCL_ROS_TIME};
+  bool have_left_{false}, have_right_{false};
+
+
 
 
 
   std::mutex m_;
   std::vector<Det2D> last_left_, last_right_;
+
+  // try to stop teleporting potholes
+  struct Track {
+  double x{0}, y{0};
+  rclcpp::Time last;
+  int hits{0};
+  int id{0};
+};
+
+std::vector<Track> tracks_;
+int next_track_id_{0};
+
+double track_match_dist_{0.50};     // meters
+double track_alpha_{0.20};          // EMA gain
+double track_ttl_sec_{0.70};        // seconds
+int min_hits_to_publish_{3};
+double max_jump_m_{0.80};           // reject wild jumps
+
+
+
+
 };
 
 int main(int argc, char** argv) {

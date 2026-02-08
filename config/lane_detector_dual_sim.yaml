@@ -4,10 +4,10 @@ lane_detector_dual:
 
     # ONE base_frame only (namespaced)
     base_frame: "base_link"
-    path_frame: "base_link"
+    output_frame: "odom"
+    left_cam_frame: "left_camera_link/left_cam"
+    right_cam_frame: "right_camera_link/right_cam"
 
-    left_camera_frame:  "left_camera_link/left_cam"
-    right_camera_frame: "right_camera_link/right_cam"
     left_camera_info_topic:  "/left_cam/camera_info"
     right_camera_info_topic: "/right_cam/camera_info"
 

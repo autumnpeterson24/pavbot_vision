@@ -1,4 +1,5 @@
 // pothole_points_bridge.cpp
+/* CURRENT MIN DISTANCE OF ACCEPTED POTHOLE = 3m in front*/
 #include <rclcpp/rclcpp.hpp>
 #include <geometry_msgs/msg/pose_array.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
@@ -10,7 +11,7 @@ public:
   PotholePointsBridge() : Node("pothole_points_bridge") {
     declare_parameter<std::string>("in_topic",  "/potholes/poses");
     declare_parameter<std::string>("out_topic", "/potholes/points");
-    declare_parameter<std::string>("frame_id",  "base_link");
+    declare_parameter<std::string>("frame_id",  "odom");
 
     in_topic_  = get_parameter("in_topic").as_string();
     out_topic_ = get_parameter("out_topic").as_string();
