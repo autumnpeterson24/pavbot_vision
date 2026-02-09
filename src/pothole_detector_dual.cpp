@@ -346,109 +346,164 @@ private:
     return std::hypot(ax - bx, ay - by);
   }
 
-  void fuseAndPublish(const rclcpp::Time& stamp)
-  {
-    // Gather latest per-camera detections and project to base
-    std::vector<DetBase> base_pts;
-
-    auto project_list = [&](const std::vector<Det2D>& dets, const KIntr& K) {
-      for (const auto& d : dets) {
-        double Xb, Yb;
-        if (!pixelToGroundBase(K, d.cam_frame, d.stamp, d.u, d.v, Xb, Yb)) continue;
-        base_pts.push_back({Xb, Yb});
-      }
-    };
-
-    std::vector<Det2D> L, R;
+void fuseAndPublish(const rclcpp::Time& stamp)
     {
-      std::lock_guard<std::mutex> lk(m_);
-      L = last_left_;
-      R = last_right_;
-    }
-    project_list(L, K_left_);
-    project_list(R, K_right_);
+      // Gather latest per-camera detections and project to base
+      std::vector<DetBase> base_pts;
 
-    // Simple clustering in base frame (greedy)
-    std::vector<DetBase> fused;
-    for (const auto& p : base_pts) {
-      bool merged = false;
-      for (auto& q : fused) {
-        if (hypot2(p.x, p.y, q.x, q.y) < fuse_dist_m_) {
-          q.x = 0.5 * (q.x + p.x);
-          q.y = 0.5 * (q.y + p.y);
-          merged = true;
-          break;
+      auto project_list = [&](const std::vector<Det2D>& dets, const KIntr& K) {
+        for (const auto& d : dets) {
+          double Xb, Yb;
+          if (!pixelToGroundBase(K, d.cam_frame, d.stamp, d.u, d.v, Xb, Yb)) continue;
+
+          // // optional wedge gate
+          // if (Xb < 2.5 || Xb > 15.0) continue;
+          // if (std::abs(Yb) > 3.0) continue;
+
+          base_pts.push_back({Xb, Yb});
         }
+      };
+
+      std::vector<Det2D> L, R;
+      {
+        std::lock_guard<std::mutex> lk(m_);
+        L = last_left_;
+        R = last_right_;
       }
-      if (!merged) fused.push_back(p);
-    }
+      project_list(L, K_left_);
+      project_list(R, K_right_);
 
-    geometry_msgs::msg::PoseArray poses;
-    poses.header.frame_id = output_frame_;
-    poses.header.stamp = stamp;
-
-    std_msgs::msg::Float32MultiArray radii;
-    radii.data.reserve(fused.size());
-
-    visualization_msgs::msg::MarkerArray ma;
-
-    // transform each fused base_link point to output_frame (odom)
-    for (size_t i = 0; i < fused.size(); ++i) {
-
-      geometry_msgs::msg::PointStamped p_base;
-      p_base.header.frame_id = base_frame_;   // "base_link"
-      p_base.header.stamp = stamp;
-      p_base.point.x = fused[i].x;
-      p_base.point.y = fused[i].y;
-      p_base.point.z = 0.0;
-
-      geometry_msgs::msg::PointStamped p_out;
-
-
-
-      
-      try {
-        p_out = tf_buffer_->transform(
-          p_base,
-          output_frame_,
-          tf2::durationFromSec(0.05));
-
-      } catch (const tf2::TransformException & ex) {
-        RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 1000,
-                            "TF transform %s -> %s failed: %s",
-                            base_frame_.c_str(), output_frame_.c_str(), ex.what());
-        continue;
+      // Simple clustering in base frame (greedy)
+      std::vector<DetBase> fused;
+      for (const auto& p : base_pts) {
+        bool merged = false;
+        for (auto& q : fused) {
+          if (hypot2(p.x, p.y, q.x, q.y) < fuse_dist_m_) {
+            q.x = 0.5 * (q.x + p.x);
+            q.y = 0.5 * (q.y + p.y);
+            merged = true;
+            break;
+          }
+        }
+        if (!merged) fused.push_back(p);
       }
 
-      geometry_msgs::msg::Pose pose;
-      pose.position.x = p_out.point.x;
-      pose.position.y = p_out.point.y;
-      pose.position.z = 0.0;
-      pose.orientation.w = 1.0;
+      // ===============================
+      // Tracking helpers (CORRECT SCOPE)
+      // ===============================
+      const rclcpp::Time now = stamp;
 
-      poses.poses.push_back(pose);
-      radii.data.push_back((float)pothole_r_);
+      // expire old tracks once per cycle
+      tracks_.erase(
+        std::remove_if(tracks_.begin(), tracks_.end(),
+          [&](const Track& t){ return (now - t.last).seconds() > track_ttl_sec_; }),
+        tracks_.end());
 
-      visualization_msgs::msg::Marker m;
-      m.header = poses.header;               // frame_id = odom, stamp = stamp
-      m.ns = "potholes";
-      m.id = (int)i;
-      m.type = visualization_msgs::msg::Marker::CYLINDER;
-      m.action = visualization_msgs::msg::Marker::ADD;
-      m.pose = pose;
-      m.scale.x = 2.0 * pothole_r_;
-      m.scale.y = 2.0 * pothole_r_;
-      m.scale.z = 0.02;
-      m.color.r = 1.0; m.color.g = 1.0; m.color.b = 1.0; m.color.a = 0.6;
+      // update/create one track from a measurement in output_frame (odom)
+      auto update_track = [&](double mx, double my) {
+        int best_i = -1;
+        double best_d = 1e9;
 
-      ma.markers.push_back(m);
+        for (int i = 0; i < (int)tracks_.size(); ++i) {
+          double d = std::hypot(mx - tracks_[i].x, my - tracks_[i].y);
+          if (d < best_d) { best_d = d; best_i = i; }
+        }
+
+        if (best_i >= 0 && best_d < track_match_dist_) {
+          if (best_d > max_jump_m_) return;   // reject insane jump
+          auto &t = tracks_[best_i];
+          t.x = (1.0 - track_alpha_) * t.x + track_alpha_ * mx;
+          t.y = (1.0 - track_alpha_) * t.y + track_alpha_ * my;
+          t.last = now;
+          t.hits++;
+        } else {
+          Track t;
+          t.x = mx; t.y = my;
+          t.last = now;
+          t.hits = 1;
+          t.id = next_track_id_++;
+          tracks_.push_back(t);
+        }
+      };
+
+      // ============================================
+      // Update tracks from fused measurements (odom)
+      // ============================================
+      for (size_t i = 0; i < fused.size(); ++i) {
+
+        geometry_msgs::msg::PointStamped p_base;
+        p_base.header.frame_id = base_frame_;
+        p_base.header.stamp = stamp;
+        p_base.point.x = fused[i].x;
+        p_base.point.y = fused[i].y;
+        p_base.point.z = 0.0;
+
+        geometry_msgs::msg::PointStamped p_out;
+        try {
+          p_out = tf_buffer_->transform(
+            p_base,
+            output_frame_,
+            tf2::durationFromSec(0.05));
+        } catch (const tf2::TransformException & ex) {
+          RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 1000,
+                              "TF transform %s -> %s failed: %s",
+                              base_frame_.c_str(), output_frame_.c_str(), ex.what());
+          continue;
+        }
+
+        update_track(p_out.point.x, p_out.point.y);
+      }
+
+      // ============================================
+      // Publish stable tracks only (declare ONCE)
+      // ============================================
+      geometry_msgs::msg::PoseArray poses;
+      poses.header.frame_id = output_frame_;
+      poses.header.stamp = stamp;
+
+      std_msgs::msg::Float32MultiArray radii;
+      visualization_msgs::msg::MarkerArray ma;
+
+      // wipe old markers
+      visualization_msgs::msg::Marker wipe;
+      wipe.header.frame_id = output_frame_;
+      wipe.header.stamp = stamp;
+      wipe.ns = "potholes";
+      wipe.id = 0;
+      wipe.action = visualization_msgs::msg::Marker::DELETEALL;
+
+      for (const auto& t : tracks_) {
+        if (t.hits < min_hits_to_publish_) continue;
+
+        geometry_msgs::msg::Pose pose;
+        pose.position.x = t.x;
+        pose.position.y = t.y;
+        pose.position.z = 0.0;
+        pose.orientation.w = 1.0;
+
+        poses.poses.push_back(pose);
+        radii.data.push_back((float)pothole_r_);
+
+        visualization_msgs::msg::Marker m;
+        m.header = poses.header;
+        m.ns = "potholes";
+        m.id = t.id;
+        m.type = visualization_msgs::msg::Marker::CYLINDER;
+        m.action = visualization_msgs::msg::Marker::ADD;
+        m.pose = pose;
+        m.scale.x = 2.0 * pothole_r_;
+        m.scale.y = 2.0 * pothole_r_;
+        m.scale.z = 0.02;
+        m.color.r = 1.0; m.color.g = 1.0; m.color.b = 1.0; m.color.a = 0.6;
+
+        ma.markers.push_back(m);
+      }
+
+      poses_pub_->publish(poses);
+      radii_pub_->publish(radii);
+      markers_pub_->publish(ma);
     }
 
-    poses_pub_->publish(poses);
-    radii_pub_->publish(radii);
-    markers_pub_->publish(ma);
-
-  }
 
   void maybeFusePublish(const rclcpp::Time& stamp) {
     if (!use_sync_gate_) {
@@ -566,11 +621,12 @@ private:
 std::vector<Track> tracks_;
 int next_track_id_{0};
 
-double track_match_dist_{0.50};     // meters
-double track_alpha_{0.20};          // EMA gain
-double track_ttl_sec_{0.70};        // seconds
-int min_hits_to_publish_{3};
-double max_jump_m_{0.80};           // reject wild jumps
+double track_match_dist_{0.75};
+double track_alpha_{0.08};
+double track_ttl_sec_{2.0};
+int    min_hits_to_publish_{2};
+double max_jump_m_{0.60};
+
 
 
 
