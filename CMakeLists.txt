@@ -31,9 +31,9 @@ ament_target_dependencies(cam_pub
 target_link_libraries(cam_pub ${OpenCV_LIBS})
 
 
-# Pothole detector dual node ------------------------------
-add_executable(pothole_detector_dual src/pothole_detector_dual.cpp)
-ament_target_dependencies(pothole_detector_dual
+# Pothole detector single node ------------------------------
+add_executable(pothole_detector_single src/pothole_detector_single.cpp)
+ament_target_dependencies(pothole_detector_single
   rclcpp
   sensor_msgs
   geometry_msgs
@@ -45,6 +45,21 @@ ament_target_dependencies(pothole_detector_dual
   tf2_ros
   tf2_geometry_msgs
 )
+
+# # Pothole detector dual node ------------------------------
+# add_executable(pothole_detector_dual src/pothole_detector_dual.cpp)
+# ament_target_dependencies(pothole_detector_dual
+#   rclcpp
+#   sensor_msgs
+#   geometry_msgs
+#   visualization_msgs
+#   std_msgs
+#   image_transport
+#   cv_bridge
+#   tf2
+#   tf2_ros
+#   tf2_geometry_msgs
+# )
 
 # Pothole PoseArray -> PointCloud2 bridge ------------------------------
 add_executable(pothole_points_bridge src/pothole_points_bridge.cpp)
@@ -105,7 +120,7 @@ install(TARGETS
   cam_pub
   lane_detector_dual
   pothole_detector
-  pothole_detector_dual
+  pothole_detector_single
   pothole_points_bridge
 
   DESTINATION lib/${PROJECT_NAME}
