@@ -4,6 +4,7 @@ pothole_detector_dual:
 
     # Frames
     base_frame: "base_link"
+    output_frame: "base_link"
     ground_z_in_base: 0.0
     fuse_dist_m: 1.0
 
@@ -14,16 +15,16 @@ pothole_detector_dual:
     right_info_topic: "/right_cam/camera_info"
 
     # ROI & thresholding (tune as needed)
-    roi_top_frac: 0.0
+    roi_top_frac: 0.3
 
     min_area_px: 200.0
     max_area_px: 50000.0
-    min_circularity: 0.2
-    max_aspect_ratio: 3.5
+    min_circularity: 0.45
+    max_aspect_ratio: 2.2
 
     sat_max_for_white: 60
     val_min_for_white: 220
 
     # Morphology (tune as needed)
-    open_k: 3
+    open_k: 5
     close_k: 7

@@ -9,7 +9,7 @@ pothole_detector_single:
     info_topic: /left_cam/camera_info
     cam_frame: left_camera_link/left_cam
 
-    roi_top_frac: 0.1
+    roi_top_frac: 0.30
     sat_max_for_white: 60
     val_min_for_white: 220
     open_k: 9
@@ -26,5 +26,5 @@ pothole_detector_single:
     track_match_dist: 0.75
     track_alpha: 0.08
     track_ttl_sec: 2.0
-    min_hits_to_publish: 2
+    min_hits_to_publish: 1
     max_jump_m: 0.60

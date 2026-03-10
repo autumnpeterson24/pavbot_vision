@@ -12,6 +12,6 @@ lane_detector_dual:
     right_camera_info_topic: "/right_cam/camera_info"
 
     ground_z_in_base: 0.0
-    roi_top_frac: 0.30
+    roi_top_frac: 0.4
     use_sync_gate: true
     sync_slop_sec: 0.05
