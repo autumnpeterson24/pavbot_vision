@@ -24,6 +24,7 @@
 #include <visualization_msgs/msg/marker.hpp>
 #include <geometry_msgs/msg/point.hpp>
 
+// v1.0 with scitech fest
 
 
 struct Poly2 {
