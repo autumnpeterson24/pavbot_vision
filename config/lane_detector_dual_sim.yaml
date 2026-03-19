@@ -11,6 +11,12 @@ lane_detector_dual:
     left_camera_info_topic:  "/left_cam/camera_info"
     right_camera_info_topic: "/right_cam/camera_info"
 
+    nominal_lane_half_width_m: 2.2
+    auto_learn_half_width: true
+    half_width_learn_alpha: 0.95
+    half_width_min_m: 1.4
+    half_width_max_m: 3.2
+
     ground_z_in_base: 0.0
     roi_top_frac: 0.4
     use_sync_gate: true
