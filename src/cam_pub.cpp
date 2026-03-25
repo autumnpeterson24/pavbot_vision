@@ -11,7 +11,7 @@ Camera Publisher Node for Lane Detection using the ELP Sony IMX323
 class CamPub : public rclcpp::Node {
 public:
   CamPub() : Node("cam_pub") {
-    declare_parameter<std::string>("device", "/dev/video2"); // THIS IS SUBJECT TO CHANGE BASED ON USB PORTS
+    declare_parameter<std::string>("device", "/dev/v4l/by-id/usb-H264_USB_Camera_H264_USB_Camera_2020032801-video-index0"); // THIS IS SUBJECT TO CHANGE BASED ON USB PORTS
     declare_parameter<int>("width", 1280);
     declare_parameter<int>("height", 720);
     declare_parameter<double>("fps", 30.0);

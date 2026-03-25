@@ -11,8 +11,8 @@ from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
 def generate_launch_description():
-    lane_device_arg    = DeclareLaunchArgument('lane_device', default_value='/dev/video3')
-    pothole_device_arg = DeclareLaunchArgument('pothole_device', default_value='/dev/video4')
+    lane_device_arg    = DeclareLaunchArgument('lane_device', default_value='/dev/v4l/by-path/platform-3610000.usb-usb-0:2.3:1.0-video-index0')
+    pothole_device_arg = DeclareLaunchArgument('pothole_device', default_value='/dev/v4l/by-path/platform-3610000.usb-usb-0:2.4:1.0-video-index0')
 
 
     # Lane camera node for lane detection
