@@ -1,0 +1,183 @@
+
+# YAML for REAL LIFE LANE DETECTION
+
+# SUNNY CONDITIONS +++++++++++++++++
+lane_detector_dual:
+  ros__parameters:
+    use_sim_time: false
+
+    base_frame: "base_link"
+    left_camera_frame: "left_camera_link"
+    right_camera_frame: "right_camera_link"
+
+    left_camera_topic: "/left_cam/image_raw"
+    right_camera_topic: "/right_cam/image_raw"
+    left_camera_info_topic: "/left_cam/camera_info"
+    right_camera_info_topic: "/right_cam/camera_info"
+
+    ground_z_in_base: 0.0
+    roi_top_frac: 0.55
+
+    use_sync_gate: true
+    sync_slop_sec: 0.05
+    max_boundary_age_sec: 0.20
+    max_pair_skew_sec: 0.05
+
+    nominal_lane_half_width_m: 2.2
+    auto_learn_half_width: true
+    half_width_learn_alpha: 0.95
+    half_width_min_m: 1.525
+    half_width_max_m: 3.2
+
+    min_lane_confidence: 0.35
+    lane_conf_hysteresis: 0.07
+    centerline_smooth_alpha: 0.85
+
+    robust_refit: true
+    robust_inlier_thresh_px: 10.0
+    robust_min_inliers: 40
+    poly_smooth_tau_sec: 0.20
+
+    # VERY strict white detection
+    sat_max_for_white: 30
+    val_min_for_white: 210
+
+    # Strong edge filtering
+    sobel_thresh: 80
+    debug_print_hz: 1.0
+
+
+# CLOUDY CONDITIONS ###################
+# lane_detector_dual:
+#   ros__parameters:
+#     use_sim_time: false
+
+#     base_frame: "base_link"
+#     left_camera_frame: "left_camera_link"
+#     right_camera_frame: "right_camera_link"
+
+#     left_camera_topic: "/left_cam/image_raw"
+#     right_camera_topic: "/right_cam/image_raw"
+#     left_camera_info_topic: "/left_cam/camera_info"
+#     right_camera_info_topic: "/right_cam/camera_info"
+
+#     ground_z_in_base: 0.0
+#     roi_top_frac: 0.50
+
+#     use_sync_gate: true
+#     sync_slop_sec: 0.05
+#     max_boundary_age_sec: 0.20
+#     max_pair_skew_sec: 0.05
+
+#     nominal_lane_half_width_m: 2.2
+#     auto_learn_half_width: true
+#     half_width_learn_alpha: 0.95
+#     half_width_min_m: 1.525
+#     half_width_max_m: 3.2
+
+#     min_lane_confidence: 0.35
+#     lane_conf_hysteresis: 0.07
+#     centerline_smooth_alpha: 0.85
+
+#     robust_refit: true
+#     robust_inlier_thresh_px: 12.0
+#     robust_min_inliers: 35
+#     poly_smooth_tau_sec: 0.20
+
+#     # Balanced white detection
+#     sat_max_for_white: 45
+#     val_min_for_white: 190
+
+#     # Moderate edge use
+#     sobel_thresh: 60
+#     debug_print_hz: 1.0
+
+
+# GRAYISH/FADED (LESS STARK CONTRAST) -----------
+# lane_detector_dual:
+#   ros__parameters:
+#     use_sim_time: false
+
+#     base_frame: "base_link"
+#     left_camera_frame: "left_camera_link"
+#     right_camera_frame: "right_camera_link"
+
+#     left_camera_topic: "/left_cam/image_raw"
+#     right_camera_topic: "/right_cam/image_raw"
+#     left_camera_info_topic: "/left_cam/camera_info"
+#     right_camera_info_topic: "/right_cam/camera_info"
+
+#     ground_z_in_base: 0.0
+#     roi_top_frac: 0.50
+
+#     use_sync_gate: true
+#     sync_slop_sec: 0.05
+#     max_boundary_age_sec: 0.20
+#     max_pair_skew_sec: 0.05
+
+#     nominal_lane_half_width_m: 2.2
+#     auto_learn_half_width: true
+#     half_width_learn_alpha: 0.95
+#     half_width_min_m: 1.525
+#     half_width_max_m: 3.2
+
+#     min_lane_confidence: 0.30
+#     lane_conf_hysteresis: 0.05
+#     centerline_smooth_alpha: 0.85
+
+#     robust_refit: true
+#     robust_inlier_thresh_px: 15.0
+#     robust_min_inliers: 25
+#     poly_smooth_tau_sec: 0.25
+
+#     # Looser white detection
+#     sat_max_for_white: 65
+#     val_min_for_white: 160
+
+#     # More tolerant edges
+#     sobel_thresh: 45
+#     debug_print_hz: 1.0
+
+
+# INDOOR TEST WITH COMFORTER ===================
+# lane_detector_dual:
+#   ros__parameters:
+#     use_sim_time: false
+
+#     base_frame: "base_link"
+#     left_camera_frame: "left_camera_link"
+#     right_camera_frame: "right_camera_link"
+
+#     left_camera_topic: "/left_cam/image_raw"
+#     right_camera_topic: "/right_cam/image_raw"
+#     left_camera_info_topic: "/left_cam/camera_info"
+#     right_camera_info_topic: "/right_cam/camera_info"
+
+#     ground_z_in_base: 0.0
+#     roi_top_frac: 0.60
+
+#     use_sync_gate: true
+#     sync_slop_sec: 0.05
+#     max_boundary_age_sec: 0.20
+#     max_pair_skew_sec: 0.05
+
+#     nominal_lane_half_width_m: 2.2
+#     auto_learn_half_width: true
+#     half_width_learn_alpha: 0.95
+#     half_width_min_m: 1.525
+#     half_width_max_m: 3.2
+
+#     min_lane_confidence: 0.35
+#     lane_conf_hysteresis: 0.07
+#     centerline_smooth_alpha: 0.85
+
+#     robust_refit: false
+#     robust_inlier_thresh_px: 18.0
+#     robust_min_inliers: 25
+#     poly_smooth_tau_sec: 0.25
+
+#     sat_max_for_white: 55
+#     val_min_for_white: 175
+#     sobel_thresh: 120
+
+#     debug_print_hz: 1.0

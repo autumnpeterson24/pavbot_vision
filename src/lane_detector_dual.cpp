@@ -619,7 +619,8 @@ bool pixelToGroundBase(const KIntr& K,
     cv::convertScaleAbs(gradx, absx);
     cv::threshold(absx, edges, sobel_thresh_, 255, cv::THRESH_BINARY);
 
-    cv::bitwise_or(mask, edges, mask);
+    // Disabled for indoor white-region testing:
+    // cv::bitwise_or(mask, edges, mask);
     cv::morphologyEx(mask, mask, cv::MORPH_CLOSE,
                      cv::getStructuringElement(cv::MORPH_RECT, {5,5}));
     cv::morphologyEx(mask, mask, cv::MORPH_OPEN,

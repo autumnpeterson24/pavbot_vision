@@ -102,22 +102,26 @@ ament_target_dependencies(lane_detector_dual
   visualization_msgs
 )
 
-# Mock camera node (Not really used anymore)
-# add_executable(mock_camera src/mock_camera.cpp)
-# ament_target_dependencies(mock_camera
-#   rclcpp
-#   sensor_msgs
-#   image_transport
-#   cv_bridge
-#   OpenCV
-# )
+# camera publisher
+add_executable(dual_cam_pub src/dual_cam_pub.cpp)
 
-# Install targets
+ament_target_dependencies(dual_cam_pub
+  rclcpp
+  sensor_msgs
+  image_transport
+  cv_bridge
+)
+
+target_link_libraries(dual_cam_pub ${OpenCV_LIBS})
 
 install(TARGETS
-  #mock_camera
+  dual_cam_pub
+  DESTINATION lib/${PROJECT_NAME}
+)
 
-  cam_pub
+install(TARGETS
+
+  dual_cam_pub
   lane_detector_dual
   pothole_detector
   pothole_detector_single

@@ -1,0 +1,29 @@
+
+dual_cam_pub:
+  ros__parameters:
+    fps: 10.0
+    width: 640
+    height: 360
+    fourcc: "MJPEG"
+
+    left:
+      device: "/dev/v4l/by-path/pci-0000:00:14.0-usb-0:1:1.0-video-index0"
+      frame_id: "left_camera_link"
+      image_topic: "/left_cam/image_raw"
+      info_topic: "/left_cam/camera_info"
+      fx: 900.0
+      fy: 900.0
+      cx: 640.0
+      cy: 360.0
+      d: [0.0, 0.0, 0.0, 0.0, 0.0]
+
+    right:
+      device: "/dev/v4l/by-path/pci-0000:00:14.0-usb-0:4:1.0-video-index0"
+      frame_id: "right_camera_link"
+      image_topic: "/right_cam/image_raw"
+      info_topic: "/right_cam/camera_info"
+      fx: 900.0
+      fy: 900.0
+      cx: 640.0
+      cy: 360.0
+      d: [0.0, 0.0, 0.0, 0.0, 0.0]
