@@ -574,7 +574,7 @@ private:
   PolyState left_poly_state_;
   PolyState right_poly_state_;
 
-      // CameraInfo
+  // CameraInfo
     struct KIntr {
       double fx{0}, fy{0}, cx{0}, cy{0};
       int w{0}, h{0};
