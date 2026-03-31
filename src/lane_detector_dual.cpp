@@ -8,31 +8,31 @@ lane_detector_dual.cpp ===========================================
            robot base frame (base_link), and fuses them into a navigation ready centerline path.
 
 * Subscribes to:
-  - /left_cam/image_raw              (sensor_msgs/msg/Image)
-  - /right_cam/image_raw             (sensor_msgs/msg/Image)
-  - /left_cam/camera_info           (sensor_msgs/msg/CameraInfo)
-  - /right_cam/camera_info          (sensor_msgs/msg/CameraInfo) 
+  - /left_cam/image_raw (sensor_msgs/msg/Image)
+  - /right_cam/image_raw (sensor_msgs/msg/Image)
+  - /left_cam/camera_info (sensor_msgs/msg/CameraInfo)
+  - /right_cam/camera_info (sensor_msgs/msg/CameraInfo) 
   
 * Publishes: 
-  - /lanes/left_boundary            (nav_msgs/msg/Path)
+  - /lanes/left_boundary (nav_msgs/msg/Path)
       Projected left lane boundary in base_link frame
 
-  - /lanes/right_boundary           (nav_msgs/msg/Path)
+  - /lanes/right_boundary (nav_msgs/msg/Path)
       Projected right lane boundary in base_link frame
 
-  - /lanes/centerline               (nav_msgs/msg/Path)
+  - /lanes/centerline (nav_msgs/msg/Path)
       Fused centerline used for downstream navigation (Nav2)
 
-  - /lanes/confidence               (std_msgs/msg/Float32)
+  - /lanes/confidence (std_msgs/msg/Float32)
       Confidence score of current lane solution (0.0–1.0)
 
-  - /lanes/debug_left               (sensor_msgs/msg/Image)
+  - /lanes/debug_left (sensor_msgs/msg/Image)
       Debug visualization for left camera (mask + fitted curve)
 
-  - /lanes/debug_right              (sensor_msgs/msg/Image)
+  - /lanes/debug_right (sensor_msgs/msg/Image)
       Debug visualization for right camera (mask + fitted curve)
 
-  - /lanes/footprint_marker         (visualization_msgs/msg/Marker)
+  - /lanes/footprint_marker (visualization_msgs/msg/Marker)
       Robot footprint visualization in base frame (for RViz/debug)
 
   * Notes:
@@ -42,6 +42,18 @@ lane_detector_dual.cpp ===========================================
   - Boundaries are projected to ground using CameraInfo intrinsics + TF.
   - Centerline is computed from dual-boundary fusion or single-boundary fallback.
   - Designed for robustness to partial lane visibility and outdoor lighting conditions.
+
+  * Sources:
+  Papers:
+    - H. H. Park et al, "Robust dual-camera lane-keeping system using YOLOv8 and ROS2 for autonomous driving education," in 2025 IEEE/IEIE International Conference on Consumer Electronics-Asia (ICCE-Asia), 2025, . DOI: 10.1109/ICCE-Asia67487.2025.11263641. 
+    - S. D. Vidya Sagar and C. J. Prabhakar, "A vison based lane detection approach using vertical lane finder method," in 2022 International Conference on Distributed Computing, VLSI, Electrical Circuits and Robotics ( DISCOVER), 2022, . DOI: 10.1109/DISCOVER55800.2022.9974938. 
+    - K. H. Lim and A. A. Gopalai, "Ground-image plane mapping for lane marks detection," in 2012 12th International Conference on Intelligent Systems Design and Applications (ISDA), 2012, . DOI: 10.1109/ISDA.2012.6416609.
+  GitHub Repos:
+    - https://github.com/abhijitmahalle/lane-detection
+    - https://github.com/Core9724/Awesome-Lane-Detection
+    - https://github.com/georgesung/advanced_lane_detection  
+  Additional Help:
+    - ChatGPT assisted in the debugging during development process of algorithm
 
 */
 
@@ -283,7 +295,7 @@ struct BoundaryResult {
   int W{0}, H{0};
   rclcpp::Time stamp;
 
-  // diagnostics
+  // diagnostics -----------
   int num_points{0};
   int windows_hit{0};
   int nwindows{0};
@@ -461,9 +473,7 @@ public:
         [this]() { publishFootprint(); }
       );
 
-
-
-    // Publishers
+    // Publishers -----------------
     center_pub_ = create_publisher<nav_msgs::msg::Path>("/lanes/centerline", 10);
     left_pub_   = create_publisher<nav_msgs::msg::Path>("/lanes/left_boundary", 10);
     right_pub_  = create_publisher<nav_msgs::msg::Path>("/lanes/right_boundary", 10);
@@ -472,7 +482,7 @@ public:
     dbg_left_pub_  = image_transport::create_publisher(this, "/lanes/debug_left");
     dbg_right_pub_ = image_transport::create_publisher(this, "/lanes/debug_right");
 
-    // Subscribers
+    // Subscribers -----------------
     left_sub_ = image_transport::create_subscription(
       this, left_topic_,
       std::bind(&LaneDetectorDualNode::leftCb, this, std::placeholders::_1),
@@ -483,34 +493,29 @@ public:
       std::bind(&LaneDetectorDualNode::rightCb, this, std::placeholders::_1),
       "raw");
 
-    // TF buffer/listener
+    // TF buffer/listener -------------
     tf_buffer_ = std::make_unique<tf2_ros::Buffer>(this->get_clock());
     tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
 
-    // CameraInfo subs
+    // CameraInfo subs --------------
     left_info_sub_ = create_subscription<sensor_msgs::msg::CameraInfo>(
       left_info_topic_, rclcpp::SensorDataQoS(),
       [this](sensor_msgs::msg::CameraInfo::ConstSharedPtr msg){
         K_left_ = parseK(*msg);
       });
 
-    right_info_sub_ = create_subscription<sensor_msgs::msg::CameraInfo>(
-      right_info_topic_, rclcpp::SensorDataQoS(),
-      [this](sensor_msgs::msg::CameraInfo::ConstSharedPtr msg){
-        K_right_ = parseK(*msg);
-      });
-
+    right_info_sub_ = create_subscription<sensor_msgs::msg::CameraInfo>( right_info_topic_, rclcpp::SensorDataQoS(),[this](sensor_msgs::msg::CameraInfo::ConstSharedPtr msg){K_right_ = parseK(*msg);});
+    
     RCLCPP_INFO(get_logger(), "lane_detector_dual up.");
     RCLCPP_INFO(get_logger(), "  left : %s", left_topic_.c_str());
     RCLCPP_INFO(get_logger(), "  right: %s", right_topic_.c_str());
     RCLCPP_INFO(get_logger(), "  frame: %s", frame_.c_str());
     RCLCPP_INFO(get_logger(), "  roi_top_frac=%.2f ", roi_top_frac_);
-    RCLCPP_INFO(get_logger(), "  robust_refit=%s  poly_tau=%.3fs  max_age=%.3fs",
-                robust_refit_ ? "true" : "false", poly_smooth_tau_sec_, max_boundary_age_sec_);
+    RCLCPP_INFO(get_logger(), "  robust_refit=%s  poly_tau=%.3fs  max_age=%.3fs",robust_refit_ ? "true" : "false", poly_smooth_tau_sec_, max_boundary_age_sec_);
   }
 
 private:
-  // FUSION PARAMETERS
+  // FUSION PARAMETERS -------
 
   double min_lane_conf_{0.35};
   double lane_conf_hyst_{0.07};
