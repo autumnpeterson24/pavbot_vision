@@ -1,3 +1,50 @@
+/*
+lane_detector_dual.cpp ===========================================
+
+* Author: Autumn Peterson for PAVBot Capstone Team, 2026
+* Purpose: Dual-camera based lane detection and centerline construction algorithm
+           for the lane-following portion of the IGVC AutoNav Competition Traffic Laws Ruleset.
+           Detects left/right lane boundaries from IMX323 100 deg none-distortion cameras and projects them into the
+           robot base frame (base_link), and fuses them into a navigation ready centerline path.
+
+* Subscribes to:
+  - /left_cam/image_raw              (sensor_msgs/msg/Image)
+  - /right_cam/image_raw             (sensor_msgs/msg/Image)
+  - /left_cam/camera_info           (sensor_msgs/msg/CameraInfo)
+  - /right_cam/camera_info          (sensor_msgs/msg/CameraInfo) 
+  
+* Publishes: 
+  - /lanes/left_boundary            (nav_msgs/msg/Path)
+      Projected left lane boundary in base_link frame
+
+  - /lanes/right_boundary           (nav_msgs/msg/Path)
+      Projected right lane boundary in base_link frame
+
+  - /lanes/centerline               (nav_msgs/msg/Path)
+      Fused centerline used for downstream navigation (Nav2)
+
+  - /lanes/confidence               (std_msgs/msg/Float32)
+      Confidence score of current lane solution (0.0–1.0)
+
+  - /lanes/debug_left               (sensor_msgs/msg/Image)
+      Debug visualization for left camera (mask + fitted curve)
+
+  - /lanes/debug_right              (sensor_msgs/msg/Image)
+      Debug visualization for right camera (mask + fitted curve)
+
+  - /lanes/footprint_marker         (visualization_msgs/msg/Marker)
+      Robot footprint visualization in base frame (for RViz/debug)
+
+  * Notes:
+  - Each camera detects a single lane boundary using
+    histogram-seeded sliding window tracking and polynomial fitting. 
+    (left and right cameras each have a designated portion of the image that they track from)
+  - Boundaries are projected to ground using CameraInfo intrinsics + TF.
+  - Centerline is computed from dual-boundary fusion or single-boundary fallback.
+  - Designed for robustness to partial lane visibility and outdoor lighting conditions.
+
+*/
+
 #include <rclcpp/rclcpp.hpp>
 #include <image_transport/image_transport.hpp>
 #include <cv_bridge/cv_bridge.h>
@@ -16,15 +63,13 @@
 #include <algorithm>
 #include <cmath>
 
-//new ray-ground
+//new ray-ground projection
 #include <sensor_msgs/msg/camera_info.hpp>
 #include <tf2_ros/transform_listener.h>
 #include <tf2_ros/buffer.h>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
 #include <visualization_msgs/msg/marker.hpp>
 #include <geometry_msgs/msg/point.hpp>
-
-// v1.0 with scitech fest
 
 
 struct Poly2 {
@@ -33,24 +78,74 @@ struct Poly2 {
   double eval(double y) const { return a*y*y + b*y + c; }
 };
 
-// -----------------------------
-// Helpers
-// -----------------------------
+// HELPERS ----------------------------
+
 static inline float clamp01(float v) {
+  /* 
+    Purpose: Clamps a floating-point value into the range [0.0, 1.0].
+            Used primarily for confidence scoring so values do not exceed
+            valid normalized bounds.
+
+    Input(s): 
+      * float v: Value to clamp.
+      
+    Output(s):
+      * float: Clamped value in the range [0.0, 1.0].
+  */
+
   return std::max(0.0f, std::min(1.0f, v));
 }
 
 static inline float smoothstep(float edge0, float edge1, float x) {
+  /* 
+    Purpose: Smoothly maps an input value into the range [0.0, 1.0]
+            between two threshold edges using a smoothstep curve.
+            Used to avoid abrupt thresholding in confidence calculations.
+
+    Input(s): 
+      * float edge0: Lower threshold where output begins rising from 0.
+      * float edge1: Upper threshold where output reaches 1.
+      * float x: Input value to evaluate.
+      
+    Output(s):
+      * float: Smoothly scaled value between 0.0 and 1.0.
+  */
+
   if (edge1 <= edge0) return (x >= edge1) ? 1.0f : 0.0f;
   float t = clamp01((x - edge0) / (edge1 - edge0));
   return t * t * (3.0f - 2.0f * t);
 }
 
 static inline double clampd(double v, double lo, double hi) {
+  /* 
+    Purpose: Clamps a double-precision value into a specified range.
+
+    Input(s): 
+      * double v: Value to clamp.
+      * double lo: Minimum allowable value.
+      * double hi: Maximum allowable value.
+      
+    Output(s):
+      * double: Clamped value in the range [lo, hi].
+  */
+
   return std::max(lo, std::min(hi, v));
 }
 
 static inline double exp_smooth_alpha_from_dt(double dt, double tau) {
+  /* 
+    Purpose: Computes the exponential smoothing coefficient based on elapsed
+            time and smoothing time constant. Used for temporal filtering
+            of lane polynomial coefficients between frames.
+
+    Input(s): 
+      * double dt: Time elapsed since previous update, in seconds.
+      * double tau: Desired smoothing time constant, in seconds.
+      
+    Output(s):
+      * double: Exponential smoothing alpha value in the range [0.0, 0.995].
+  */
+
   // For time-constant low-pass: alpha = exp(-dt/tau). alpha close to 1 => more smoothing.
   if (!(dt > 0.0) || !(tau > 1e-6)) return 0.0;  // 0 => no smoothing (use new)
   double a = std::exp(-dt / tau);
@@ -58,6 +153,19 @@ static inline double exp_smooth_alpha_from_dt(double dt, double tau) {
 }
 
 static Poly2 fit_poly2(const std::vector<cv::Point>& pts) {
+  /* 
+    Purpose: Fits a second order polynomial of the form x = ay^2 + by + c
+            to a set of detected lane points in image coordinates.
+
+    Input(s): 
+      * const std::vector<cv::Point>& pts: Candidate lane points collected
+        from the sliding-window search.
+      
+    Output(s):
+      * Poly2: Quadratic polynomial fit. Returned with valid=false if
+        insufficient points exist or the solve fails.
+  */
+
   Poly2 poly;
   if (pts.size() < 15) return poly;
 
@@ -82,18 +190,45 @@ static Poly2 fit_poly2(const std::vector<cv::Point>& pts) {
 }
 
 static void draw_poly(cv::Mat& img, const Poly2& p, const cv::Scalar& col) {
+  /* 
+    Purpose: Draws sampled points from a fitted polynomial onto a debug
+            image for visualization of the estimated lane boundary.
+
+    Input(s): 
+      * cv::Mat& img: Image on which to draw the polynomial points.
+      * const Poly2& p: Polynomial representing the fitted lane curve.
+      * const cv::Scalar& col: BGR color used to draw the points.
+      
+    Output(s):
+      * None (input image is modified in place)
+  */
+
   for (int y = img.rows - 1; y >= 0; y -= 5) {
     int x = (int)std::round(p.eval((double)y));
     if (0 <= x && x < img.cols) cv::circle(img, {x, y}, 2, col, -1);
   }
 }
 
-// Robust refit: fit once, keep inliers by residual threshold, refit.
-static Poly2 robust_refit_poly2(const std::vector<cv::Point>& pts,
-                                int min_pts,
-                                double inlier_thresh_px,
-                                int min_inliers)
-{
+static Poly2 robust_refit_poly2(const std::vector<cv::Point>& pts, int min_pts, double inlier_thresh_px, int min_inliers){
+  /* 
+    Purpose: Performs a robust quadratic refit by first fitting a polynomial,
+            rejecting outliers based on residual threshold, and then fitting
+            again using only inlier points. Helps reduce false curvature and
+            snapping caused by glare or noisy detections.
+
+    Input(s): 
+      * const std::vector<cv::Point>& pts: Candidate lane points.
+      * int min_pts: Minimum number of points required for a valid fit.
+      * double inlier_thresh_px: Maximum residual in pixels for a point
+        to be considered an inlier.
+      * int min_inliers: Minimum number of inliers required to accept
+        the refit.
+      
+    Output(s):
+      * Poly2: Robustly refit quadratic polynomial. Returned invalid if
+        the support is too weak.
+  */
+
   Poly2 p0 = fit_poly2(pts);
   if (!p0.valid) return p0;
   if ((int)pts.size() < min_pts) return Poly2{};
@@ -115,6 +250,20 @@ static Poly2 robust_refit_poly2(const std::vector<cv::Point>& pts,
 }
 
 static Poly2 blend_poly(const Poly2& prev, const Poly2& curr, double alpha_prev) {
+  /* 
+    Purpose: Blends a previous polynomial and current polynomial using
+            exponential smoothing. This reduces frame-to-frame jitter
+            in the detected lane boundary.
+
+    Input(s): 
+      * const Poly2& prev: Previous polynomial estimate.
+      * const Poly2& curr: Current polynomial estimate.
+      * double alpha_prev: Weight applied to the previous estimate.
+      
+    Output(s):
+      * Poly2: Smoothed polynomial blend of previous and current fits.
+  */
+
   // alpha_prev in [0..1): out = alpha_prev*prev + (1-alpha_prev)*curr
   if (!curr.valid) return Poly2{};
   if (!prev.valid) return curr;
@@ -143,6 +292,19 @@ struct BoundaryResult {
 };
 
 class LaneDetectorDualNode : public rclcpp::Node {
+  /* 
+    Purpose: Extracts the camera intrinsic parameters needed for projection
+            from a ROS CameraInfo message.
+
+    Input(s): 
+      * const sensor_msgs::msg::CameraInfo& ci: CameraInfo message containing
+        intrinsic calibration data.
+      
+    Output(s):
+      * KIntr: Parsed intrinsic parameter structure containing fx, fy, cx, cy,
+        image width, image height, and validity flag.
+  */
+
 public:
   LaneDetectorDualNode() : Node("lane_detector_dual") {
 
@@ -348,9 +510,8 @@ public:
   }
 
 private:
-  // -----------------------------
-  // Fusion params
-  // -----------------------------
+  // FUSION PARAMETERS
+
   double min_lane_conf_{0.35};
   double lane_conf_hyst_{0.07};
   double center_smooth_alpha_{0.85};
@@ -432,6 +593,17 @@ private:
     std::string right_cam_frame_{"right_camera_link/right_cam"};
 
   static KIntr parseK(const sensor_msgs::msg::CameraInfo& ci) {
+    /* 
+      Purpose: Publishes a rectangular robot footprint marker for RViz/debug
+              visualization in the robot base frame.
+
+      Input(s): 
+        * None.
+        
+      Output(s):
+        * None. Publishes a visualization_msgs/msg/Marker message.
+    */
+
     KIntr k;
     k.w = (int)ci.width;
     k.h = (int)ci.height;
@@ -476,121 +648,143 @@ private:
     footprint_pub_->publish(m);
   }
 
+  bool pixelToGroundBase(const KIntr& K, const std::string& cam_frame, const rclcpp::Time& stamp, double u, double v, double& Xb, double& Yb) {
+  /* 
+    Purpose: Projects a pixel from image coordinates into the robot base frame
+            by converting it to a viewing ray, transforming that ray with TF,
+            and intersecting it with the ground plane z = ground_z_in_base_.
 
+    Input(s): 
+      * const KIntr& K: Camera intrinsic parameters.
+      * const std::string& cam_frame: Name of the camera TF frame.
+      * const rclcpp::Time& stamp: Timestamp associated with the image.
+      * double u: Pixel x-coordinate in the full image.
+      * double v: Pixel y-coordinate in the full image.
+      * double& Xb: Output variable for projected x in base frame.
+      * double& Yb: Output variable for projected y in base frame.
+      
+    Output(s):
+      * bool: True if projection succeeds and produces a valid point on the
+        ground plane in front of the camera, false otherwise.
+  */
 
-  // Project pixel (u,v) from camera frame into base_frame ground plane z=0.
-// Returns true if intersection is valid and in front of camera.
-bool pixelToGroundBase(const KIntr& K,
-                       const std::string& cam_frame,
-                       const rclcpp::Time& stamp,
-                       double u, double v,
-                       double& Xb, double& Yb)
-{
-  if (!K.valid) {
+    if (!K.valid) {
+      RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 1000,
+        "pixelToGroundBase FAIL (K invalid) cam=%s", cam_frame.c_str());
+      return false;
+    }
+
+    // pixel -> normalized ray in *some* camera frame
+    // Image normalized coordinates:
+    const double xr = (u - K.cx) / K.fx;   // + right in image
+    const double yr = (v - K.cy) / K.fy;   // + down in image
+
+    // Ray convention mapping
+    // If your TF frame is a typical "camera link" frame (Gazebo often):
+    //   +X forward, +Y left, +Z up
+    // while image math is "optical":
+    //   +X right, +Y down, +Z forward
+    //
+    // This maps optical -> link:
+    //   forward = z_opt = 1
+    //   left    = -x_opt = -xr
+    //   up      = -y_opt = -yr
+    tf2::Vector3 dir_cam(1.0, -xr, -yr);
+    dir_cam.normalize();
+
+    // lookup TF: base_frame <- cam_frame at the image timestamp
+    geometry_msgs::msg::TransformStamped T;
+    try {
+      T = tf_buffer_->lookupTransform(base_frame_, cam_frame, stamp,
+                                      rclcpp::Duration::from_seconds(0.05));
+    } catch (const tf2::TransformException& ex) {
+      RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 1000,
+        "pixelToGroundBase FAIL (TF lookup) base=%s cam=%s err=%s",
+        base_frame_.c_str(), cam_frame.c_str(), ex.what());
+      return false;
+    }
+
+    tf2::Transform tf_base_from_cam;
+    tf2::fromMsg(T.transform, tf_base_from_cam);
+
+    // Camera origin in base, and ray direction in base
+    const tf2::Vector3 o_base = tf_base_from_cam.getOrigin();
+    const tf2::Vector3 d_base = tf_base_from_cam.getBasis() * dir_cam;
+
+    // Intersect with ground plane z=0 in base frame
+    const double eps = 1e-6;
+
+    if (std::abs(d_base.z()) < eps) {
+      RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 1000,
+        "pixelToGroundBase FAIL (parallel) cam=%s u=%.1f v=%.1f "
+        "o=(%.3f %.3f %.3f) d=(%.3f %.3f %.3f)",
+        cam_frame.c_str(), u, v,
+        o_base.x(), o_base.y(), o_base.z(),
+        d_base.x(), d_base.y(), d_base.z());
+      return false;
+    }
+
+    const double s = (ground_z_in_base_ - o_base.z()) / d_base.z();
+
+    if (!(s > 0.0)) {
+      RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 1000,
+        "pixelToGroundBase FAIL (behind) cam=%s u=%.1f v=%.1f "
+        "s=%.3f o.z=%.3f d.z=%.3f o=(%.3f %.3f %.3f) d=(%.3f %.3f %.3f)",
+        cam_frame.c_str(), u, v,
+        s, o_base.z(), d_base.z(),
+        o_base.x(), o_base.y(), o_base.z(),
+        d_base.x(), d_base.y(), d_base.z());
+      return false;
+    }
+
+    const tf2::Vector3 p = o_base + s * d_base;
+
+    // Optional: reject absurd ranges (helps with sky pixels / bad conventions)
+    if (p.x() < 0.0 || p.x() > 50.0) {
+      RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 1000,
+        "pixelToGroundBase FAIL (range) cam=%s u=%.1f v=%.1f "
+        "p=(%.3f %.3f %.3f) s=%.3f",
+        cam_frame.c_str(), u, v,
+        p.x(), p.y(), p.z(), s);
+      return false;
+    }
+
+    // Success! :D
+    Xb = p.x();
+    Yb = p.y();
+
+    // Throttled success print (optional but nice during bring-up)
     RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 1000,
-      "pixelToGroundBase FAIL (K invalid) cam=%s", cam_frame.c_str());
-    return false;
-  }
-
-  // 1) pixel -> normalized ray in *some* camera frame
-  // Image normalized coordinates:
-  const double xr = (u - K.cx) / K.fx;   // + right in image
-  const double yr = (v - K.cy) / K.fy;   // + down in image
-
-  // ---- Ray convention mapping ----
-  // If your TF frame is a typical "camera link" frame (Gazebo often):
-  //   +X forward, +Y left, +Z up
-  // while image math is "optical":
-  //   +X right, +Y down, +Z forward
-  //
-  // This maps optical -> link:
-  //   forward = z_opt = 1
-  //   left    = -x_opt = -xr
-  //   up      = -y_opt = -yr
-  tf2::Vector3 dir_cam(1.0, -xr, -yr);
-  dir_cam.normalize();
-
-  // 2) lookup TF: base_frame <- cam_frame at the image timestamp
-  geometry_msgs::msg::TransformStamped T;
-  try {
-    T = tf_buffer_->lookupTransform(base_frame_, cam_frame, stamp,
-                                    rclcpp::Duration::from_seconds(0.05));
-  } catch (const tf2::TransformException& ex) {
-    RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 1000,
-      "pixelToGroundBase FAIL (TF lookup) base=%s cam=%s err=%s",
-      base_frame_.c_str(), cam_frame.c_str(), ex.what());
-    return false;
-  }
-
-  tf2::Transform tf_base_from_cam;
-  tf2::fromMsg(T.transform, tf_base_from_cam);
-
-  // Camera origin in base, and ray direction in base
-  const tf2::Vector3 o_base = tf_base_from_cam.getOrigin();
-  const tf2::Vector3 d_base = tf_base_from_cam.getBasis() * dir_cam;
-
-  // 3) Intersect with ground plane z=0 in base frame
-  const double eps = 1e-6;
-
-  if (std::abs(d_base.z()) < eps) {
-    RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 1000,
-      "pixelToGroundBase FAIL (parallel) cam=%s u=%.1f v=%.1f "
-      "o=(%.3f %.3f %.3f) d=(%.3f %.3f %.3f)",
-      cam_frame.c_str(), u, v,
+      "pixelToGroundBase OK cam=%s u=%.1f v=%.1f -> base (%.3f %.3f) "
+      "o=(%.3f %.3f %.3f) d=(%.3f %.3f %.3f) s=%.3f",
+      cam_frame.c_str(), u, v, Xb, Yb,
       o_base.x(), o_base.y(), o_base.z(),
-      d_base.x(), d_base.y(), d_base.z());
-    return false;
+      d_base.x(), d_base.y(), d_base.z(),
+      s);
+
+    return true;
   }
 
-  const double s = (ground_z_in_base_ - o_base.z()) / d_base.z();
+// MAIN PROCESSING OF BOUNDARIES
 
-  if (!(s > 0.0)) {
-    RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 1000,
-      "pixelToGroundBase FAIL (behind) cam=%s u=%.1f v=%.1f "
-      "s=%.3f o.z=%.3f d.z=%.3f o=(%.3f %.3f %.3f) d=(%.3f %.3f %.3f)",
-      cam_frame.c_str(), u, v,
-      s, o_base.z(), d_base.z(),
-      o_base.x(), o_base.y(), o_base.z(),
-      d_base.x(), d_base.y(), d_base.z());
-    return false;
-  }
+  BoundaryResult processOneBoundary(const sensor_msgs::msg::Image::ConstSharedPtr& msg, bool is_left_camera) {
+    /* 
+      Purpose: Processes a single camera image to detect one lane boundary.
+              This includes ROI cropping, white-pixel segmentation, histogram
+              seeding, sliding-window search, polynomial fitting, temporal
+              smoothing, confidence scoring, and debug image generation.
 
-  const tf2::Vector3 p = o_base + s * d_base;
+      Input(s): 
+        * const sensor_msgs::msg::Image::ConstSharedPtr& msg: Input image message
+          from either the left or right camera.
+        * bool is_left_camera: True if processing the left camera, false if
+          processing the right camera.
+        
+      Output(s):
+        * BoundaryResult: Contains the fitted boundary polynomial, confidence,
+          debug image, dimensions, timestamp, and diagnostics.
+    */
 
-  // Optional: reject absurd ranges (helps with sky pixels / bad conventions)
-  if (p.x() < 0.0 || p.x() > 50.0) {
-    RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 1000,
-      "pixelToGroundBase FAIL (range) cam=%s u=%.1f v=%.1f "
-      "p=(%.3f %.3f %.3f) s=%.3f",
-      cam_frame.c_str(), u, v,
-      p.x(), p.y(), p.z(), s);
-    return false;
-  }
-
-  // Success
-  Xb = p.x();
-  Yb = p.y();
-
-  // Throttled success print (optional but nice during bring-up)
-  RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 1000,
-    "pixelToGroundBase OK cam=%s u=%.1f v=%.1f -> base (%.3f %.3f) "
-    "o=(%.3f %.3f %.3f) d=(%.3f %.3f %.3f) s=%.3f",
-    cam_frame.c_str(), u, v, Xb, Yb,
-    o_base.x(), o_base.y(), o_base.z(),
-    d_base.x(), d_base.y(), d_base.z(),
-    s);
-
-  return true;
-}
-
-
-
-  // -----------------------------
-  // Core processing
-  // -----------------------------
-  BoundaryResult processOneBoundary(const sensor_msgs::msg::Image::ConstSharedPtr& msg,
-                                   bool is_left_camera)
-  {
     BoundaryResult out;
     out.stamp = msg->header.stamp;
 
@@ -602,7 +796,7 @@ bool pixelToGroundBase(const KIntr& K,
     cv::Mat roi = bgr.rowRange(out.roi_top, bgr.rows);
     out.H = roi.rows;
 
-    // --- segmentation: "white-ish" + edges ---
+    // segmentation: "white-ish" + edges ---
     cv::Mat hsv;
     cv::cvtColor(roi, hsv, cv::COLOR_BGR2HSV);
     std::vector<cv::Mat> ch;
@@ -704,23 +898,23 @@ bool pixelToGroundBase(const KIntr& K,
       out.poly = blended;
     } else {
       out.poly = Poly2{};
-      // If we failed, do not update the filter state; keep previous for stability.
+      // If failed, do not update the filter state; keep previous for stability.
     }
 
-    // --- confidence ---
+    // Confidence
     if (!out.poly.valid || (int)P.size() < min_points_fit_) {
       out.confidence = 0.0f;
       out.mean_residual_px = 1e9f;
       out.frac_in_expected_half = 0.0f;
     } else {
-      // A) Support
+      // Support
       float support = smoothstep((float)support_pts_lo_, (float)support_pts_hi_, (float)P.size());
 
-      // B) Continuity
+      // Continuity
       float continuity_raw = (float)windows_hit / (float)nwindows;
       float continuity = smoothstep(0.35f, 0.85f, continuity_raw);
 
-      // C) Fit residual + expected-half sanity
+      // Fit residual + expected-half sanity
       const int x_expected_lo = is_left_camera ? 0 : W/2;
       const int x_expected_hi = is_left_camera ? W/2 : W;
 
@@ -745,7 +939,7 @@ bool pixelToGroundBase(const KIntr& K,
       out.frac_in_expected_half = frac_expected;
       float side = smoothstep(0.60f, 0.90f, frac_expected);
 
-      // E) Curvature sanity
+      // Curvature sanity
       float curv = 1.0f - smoothstep((float)curv_good_, (float)curv_bad_, (float)std::abs(out.poly.a));
 
       float conf = 0.35f * support
@@ -757,7 +951,7 @@ bool pixelToGroundBase(const KIntr& K,
       out.confidence = clamp01(conf);
     }
 
-    // Debug image
+    // Debug image for RVIZ (have for both left and right)
     cv::Mat dbg;
     cv::cvtColor(mask, dbg, cv::COLOR_GRAY2BGR);
     if (out.poly.valid) draw_poly(dbg, out.poly, cv::Scalar(0,255,0));
@@ -766,10 +960,22 @@ bool pixelToGroundBase(const KIntr& K,
     return out;
   }
 
-nav_msgs::msg::Path boundaryToPathProjected(const BoundaryResult& r,
-                                           const KIntr& K,
-                                           const std::string& cam_frame)
-{
+nav_msgs::msg::Path boundaryToPathProjected(const BoundaryResult& r,const KIntr& K, const std::string& cam_frame) {
+  /* 
+    Purpose: Converts a fitted image-space lane boundary into a projected
+            nav_msgs/Path in the robot base frame by sampling the polynomial
+            and projecting each sample point onto the ground plane.
+
+    Input(s): 
+      * const BoundaryResult& r: Boundary detection result containing the
+        fitted polynomial and image metadata.
+      * const KIntr& K: Camera intrinsic parameters for the corresponding camera.
+      * const std::string& cam_frame: Name of the camera TF frame.
+      
+    Output(s):
+      * nav_msgs::msg::Path: Projected lane boundary path in base_link frame.
+  */
+
   nav_msgs::msg::Path path;
   path.header.frame_id = base_frame_;
   path.header.stamp = r.stamp;
@@ -833,11 +1039,22 @@ nav_msgs::msg::Path boundaryToPathProjected(const BoundaryResult& r,
   return path;
 }
 
+double estimateHalfWidthMedian(const nav_msgs::msg::Path& left, const nav_msgs::msg::Path& right) {
+  /* 
+    Purpose: Estimates the lane half-width using the median separation between
+            corresponding left and right projected boundary path points.
+            This supports adaptive lane-width learning during dual-boundary
+            detection.
 
+    Input(s): 
+      * const nav_msgs::msg::Path& left: Projected left boundary path.
+      * const nav_msgs::msg::Path& right: Projected right boundary path.
+      
+    Output(s):
+      * double: Estimated half-width of the lane in meters, clamped to the
+        configured allowable range.
+  */
 
-  // Robust median half-width estimate
-  double estimateHalfWidthMedian(const nav_msgs::msg::Path& left,
-                                 const nav_msgs::msg::Path& right) {
     size_t N = std::min(left.poses.size(), right.poses.size());
     if (N < 8) return nominal_half_width_;
 
@@ -860,9 +1077,18 @@ nav_msgs::msg::Path boundaryToPathProjected(const BoundaryResult& r,
     return clampd(med, half_width_min_m_, half_width_max_m_);
   }
 
-  // Smooth centerline (y only) to prevent snapping/jitter
   nav_msgs::msg::Path smoothCenterline(const nav_msgs::msg::Path& in) {
-    if (!last_centerline_ || last_centerline_->poses.empty() || in.poses.empty()) {
+    /* 
+      Purpose: Smooths the fused centerline laterally across frames to reduce
+              jitter and sudden side-to-side shifts in the output path.
+
+      Input(s): 
+        * const nav_msgs::msg::Path& in: Newly fused centerline path.
+        
+      Output(s):
+        * nav_msgs::msg::Path: Smoothed centerline path.
+    */
+      if (!last_centerline_ || last_centerline_->poses.empty() || in.poses.empty()) {
       last_centerline_ = in;
       return in;
     }
@@ -882,18 +1108,44 @@ nav_msgs::msg::Path boundaryToPathProjected(const BoundaryResult& r,
   }
 
   bool updateUsable(bool prev_ok, float conf) const {
+    /* 
+      Purpose: Applies confidence hysteresis to determine whether a lane boundary
+              should currently be considered usable. Prevents rapid toggling when
+              confidence hovers near the acceptance threshold.
+
+      Input(s): 
+        * bool prev_ok: Previous usability state of the lane boundary.
+        * float conf: Current confidence score of the boundary.
+        
+      Output(s):
+        * bool: Updated usability state.
+    */
+
     const double on_th  = min_lane_conf_;
     const double off_th = min_lane_conf_ - lane_conf_hyst_;
     if (prev_ok) return conf >= off_th;
     return conf >= on_th;
   }
 
-  nav_msgs::msg::Path fuseCenterline(const nav_msgs::msg::Path& left,
-                                    const nav_msgs::msg::Path& right,
-                                    bool useL,
-                                    bool useR,
-                                    double half_width_m,
-                                    rclcpp::Time stamp) {
+  nav_msgs::msg::Path fuseCenterline(const nav_msgs::msg::Path& left, const nav_msgs::msg::Path& right, bool useL, bool useR, double half_width_m, rclcpp::Time stamp) {
+    /* 
+      Purpose: Fuses left and right projected lane boundaries into a centerline.
+              Uses midpoint fusion when both boundaries are available, or offsets
+              a single visible boundary inward by half the lane width when only
+              one side is usable.
+
+      Input(s): 
+        * const nav_msgs::msg::Path& left: Projected left boundary path.
+        * const nav_msgs::msg::Path& right: Projected right boundary path.
+        * bool useL: Whether the left boundary should be used in fusion.
+        * bool useR: Whether the right boundary should be used in fusion.
+        * double half_width_m: Lane half-width in meters for single-boundary fallback.
+        * rclcpp::Time stamp: Timestamp to assign to the fused centerline.
+        
+      Output(s):
+        * nav_msgs::msg::Path: Fused centerline path in base_link frame.
+    */
+
     nav_msgs::msg::Path center;
     center.header.frame_id = base_frame_;
     center.header.stamp = stamp;
@@ -948,6 +1200,19 @@ nav_msgs::msg::Path boundaryToPathProjected(const BoundaryResult& r,
   }
 
   void leftCb(const sensor_msgs::msg::Image::ConstSharedPtr& msg) {
+    /* 
+      Purpose: Callback for left camera images. Processes the left image,
+              projects the detected left boundary, publishes debug/path outputs,
+              stores the latest result, and triggers centerline fusion.
+
+      Input(s): 
+        * const sensor_msgs::msg::Image::ConstSharedPtr& msg: Incoming left
+          camera image message.
+        
+      Output(s):
+        * None. Publishes lane/debug topics and updates internal detector state.
+    */
+
     auto r = processOneBoundary(msg, true);
     //const std::string cam_frame = msg->header.frame_id; // best: use actual image frame
     auto left_path = boundaryToPathProjected(r, K_left_, left_cam_frame_);
@@ -966,6 +1231,19 @@ nav_msgs::msg::Path boundaryToPathProjected(const BoundaryResult& r,
   }
 
   void rightCb(const sensor_msgs::msg::Image::ConstSharedPtr& msg) {
+    /* 
+      Purpose: Callback for right camera images. Processes the right image,
+              projects the detected right boundary, publishes debug/path outputs,
+              stores the latest result, and triggers centerline fusion.
+
+      Input(s): 
+        * const sensor_msgs::msg::Image::ConstSharedPtr& msg: Incoming right
+          camera image message.
+        
+      Output(s):
+        * None. Publishes lane/debug topics and updates internal detector state.
+    */
+
     auto r = processOneBoundary(msg, false);
     //const std::string cam_frame = msg->header.frame_id;
     auto right_path = boundaryToPathProjected(r, K_right_, right_cam_frame_);
@@ -983,8 +1261,22 @@ nav_msgs::msg::Path boundaryToPathProjected(const BoundaryResult& r,
     tryFuseAndPublish();
   }
 
-  // Preference update: only changes “which single-side to trust” after sustained evidence.
   void updatePreferredSide(bool left_ok, bool right_ok, float cL, float cR) {
+    /* 
+      Purpose: Updates which lane side is currently preferred when only one
+              side is consistently stronger. This reduces unstable left/right
+              switching during intermittent boundary detection.
+
+      Input(s): 
+        * bool left_ok: Whether the left boundary is currently usable.
+        * bool right_ok: Whether the right boundary is currently usable.
+        * float cL: Current confidence of the left boundary.
+        * float cR: Current confidence of the right boundary.
+        
+      Output(s):
+        * None. Updates internal preferred-side state.
+    */
+
     if (left_ok && right_ok) { prefer_switch_count_ = 0; return; }
     if (!left_ok && !right_ok) { prefer_switch_count_ = 0; return; }
 
@@ -1005,6 +1297,18 @@ nav_msgs::msg::Path boundaryToPathProjected(const BoundaryResult& r,
   }
 
   void publishHoldOrEmpty(rclcpp::Time stamp, float conf_val) {
+    /* 
+      Purpose: Publishes either the most recent centerline for a short hold period
+              or an empty path if the hold time has expired. Used to make output
+              behavior more stable during brief perception dropouts.
+
+      Input(s): 
+        * rclcpp::Time stamp: Timestamp to assign to the published message.
+        * float conf_val: Confidence value to publish alongside the held path.
+        
+      Output(s):
+        * None. Publishes centerline/confidence topics.
+    */
     const double dt = has_last_center_pub_ ? (this->now() - last_center_pub_time_).seconds() : 1e9;
     if (has_last_center_pub_ && dt <= center_hold_sec_) {
       auto held = last_center_pub_;
@@ -1023,6 +1327,18 @@ nav_msgs::msg::Path boundaryToPathProjected(const BoundaryResult& r,
   }
 
   void tryFuseAndPublish() {
+    /* 
+      Purpose: Attempts to fuse the latest left and right boundary detections
+              into a final centerline path. Handles freshness checks, timestamp
+              skew rejection, confidence hysteresis, lane-width learning,
+              preferred-side logic, centerline smoothing, and final publishing.
+
+      Input(s): 
+        * None.
+        
+      Output(s):
+        * None. Publishes fused centerline and confidence messages.
+    */
     std::optional<BoundaryResult> L, R;
     nav_msgs::msg::Path Lp, Rp;
 
@@ -1147,18 +1463,13 @@ nav_msgs::msg::Path boundaryToPathProjected(const BoundaryResult& r,
     }
   }
 
-  // -----------------------------
-  // Params
-  // -----------------------------
-
+  // PARAMS ------------------------------------
 
   std::string left_topic_, right_topic_, frame_;
   double roi_top_frac_{0.35};
   //double mppx_{0.025}, mppy_{0.025};
   double nominal_half_width_{1.50};
   //double left_cam_y_off_{0.30}, right_cam_y_off_{-0.30};
-
-
 
   int min_points_fit_{15};
   int support_pts_lo_{150};

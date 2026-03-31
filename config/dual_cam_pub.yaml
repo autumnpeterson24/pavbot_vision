@@ -11,10 +11,12 @@ dual_cam_pub:
       frame_id: "left_camera_link"
       image_topic: "/left_cam/image_raw"
       info_topic: "/left_cam/camera_info"
+      # FROM K in CALIBRATION
       fx: 900.0
       fy: 900.0
       cx: 640.0
       cy: 360.0
+      # FROM D in CALIBRATION
       d: [0.0, 0.0, 0.0, 0.0, 0.0]
 
     right:
