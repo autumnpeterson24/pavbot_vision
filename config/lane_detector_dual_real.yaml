@@ -16,20 +16,20 @@ lane_detector_dual:
     right_camera_info_topic: "/right_cam/camera_info"
 
     ground_z_in_base: 0.0
-    roi_top_frac: 0.55
+    roi_top_frac: 0.40
 
     use_sync_gate: true
     sync_slop_sec: 0.05
     max_boundary_age_sec: 0.20
     max_pair_skew_sec: 0.05
 
-    nominal_lane_half_width_m: 2.2
+    nominal_lane_half_width_m: 2.30
     auto_learn_half_width: true
     half_width_learn_alpha: 0.95
-    half_width_min_m: 1.525
-    half_width_max_m: 3.2
+    half_width_min_m: 1.45
+    half_width_max_m: 3.20
 
-    min_lane_confidence: 0.35
+    min_lane_confidence: 0.20
     lane_conf_hysteresis: 0.07
     centerline_smooth_alpha: 0.85
 
@@ -39,8 +39,8 @@ lane_detector_dual:
     poly_smooth_tau_sec: 0.20
 
     # VERY strict white detection
-    sat_max_for_white: 30
-    val_min_for_white: 210
+    sat_max_for_white: 64
+    val_min_for_white: 240
 
     # Strong edge filtering
     sobel_thresh: 80

@@ -623,7 +623,7 @@ private:
 
   void publishFootprint() {
     visualization_msgs::msg::Marker m;
-    m.header.frame_id = base_frame_;          // or "base_link"
+    m.header.frame_id = base_frame_; // base_link
     m.header.stamp = now();
 
     m.ns = "footprint";
@@ -633,7 +633,7 @@ private:
 
     m.pose.orientation.w = 1.0;
 
-    m.scale.x = 0.05;      // line width
+    m.scale.x = 0.05; // line width
 
     m.color.r = 1.0;
     m.color.g = 0.0;
@@ -758,7 +758,7 @@ private:
     Xb = p.x();
     Yb = p.y();
 
-    // Throttled success print (optional but nice during bring-up)
+    // Throttled success print for bringup
     RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 1000,
       "pixelToGroundBase OK cam=%s u=%.1f v=%.1f -> base (%.3f %.3f) "
       "o=(%.3f %.3f %.3f) d=(%.3f %.3f %.3f) s=%.3f",
@@ -801,7 +801,7 @@ private:
     cv::Mat roi = bgr.rowRange(out.roi_top, bgr.rows);
     out.H = roi.rows;
 
-    // segmentation: "white-ish" + edges ---
+    // segmentation: "white-ish" + edges 
     cv::Mat hsv;
     cv::cvtColor(roi, hsv, cv::COLOR_BGR2HSV);
     std::vector<cv::Mat> ch;
@@ -818,7 +818,7 @@ private:
     cv::convertScaleAbs(gradx, absx);
     cv::threshold(absx, edges, sobel_thresh_, 255, cv::THRESH_BINARY);
 
-    // Disabled for indoor white-region testing:
+    //disabled for indoor white-region testing:
     // cv::bitwise_or(mask, edges, mask);
     cv::morphologyEx(mask, mask, cv::MORPH_CLOSE,
                      cv::getStructuringElement(cv::MORPH_RECT, {5,5}));
@@ -842,7 +842,7 @@ private:
       if ((double)v > best) { best = (double)v; x_base = x; }
     }
 
-    // Sliding windows for ONE line
+    // Sliding windows for ONE line!!!!
     const int nwindows = 9;
     const int winH = std::max(1, H / nwindows);
     const int margin = 60;
@@ -947,12 +947,7 @@ private:
       // Curvature sanity
       float curv = 1.0f - smoothstep((float)curv_good_, (float)curv_bad_, (float)std::abs(out.poly.a));
 
-      float conf = 0.35f * support
-                 + 0.25f * continuity
-                 + 0.25f * fitq
-                 + 0.10f * side
-                 + 0.05f * curv;
-
+      float conf = 0.35f * support + 0.25f * continuity + 0.25f * fitq + 0.10f * side + 0.05f * curv;
       out.confidence = clamp01(conf);
     }
 
@@ -1020,7 +1015,7 @@ nav_msgs::msg::Path boundaryToPathProjected(const BoundaryResult& r,const KIntr&
       continue;
     }
 
-    // Optional sanity (prevents a few bad rays from polluting the path)
+    // Optional sanity (prevents few bad rays from polluting the path)
     if (!std::isfinite(Xb) || !std::isfinite(Yb)) continue;
     if (Xb < 0.0 || Xb > 50.0) continue;
 

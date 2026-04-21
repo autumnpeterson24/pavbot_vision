@@ -1,31 +1,55 @@
+# CHANGING UP CAM SETTINGS:
+# v4l2-ctl -l
+# CHANGE ACTUAL DEVICE: v4l2-ctl -d /dev/video0 -c exposure_absolute=200
+
+# User Controls
+
+#                      brightness 0x00980900 (int)    : min=-64 max=64 step=1 default=0 value=0
+#                        contrast 0x00980901 (int)    : min=0 max=255 step=1 default=32 value=32
+#                      saturation 0x00980902 (int)    : min=0 max=100 step=1 default=64 value=64
+#                             hue 0x00980903 (int)    : min=-180 max=180 step=1 default=0 value=0
+#         white_balance_automatic 0x0098090c (bool)   : default=1 value=1
+#                           gamma 0x00980910 (int)    : min=90 max=150 step=1 default=120 value=120
+#            power_line_frequency 0x00980918 (menu)   : min=0 max=2 default=1 value=1 (50 Hz)
+#       white_balance_temperature 0x0098091a (int)    : min=2800 max=6500 step=1 default=4600 value=4600 flags=inactive
+#                       sharpness 0x0098091b (int)    : min=0 max=7 step=1 default=0 value=0
+#          backlight_compensation 0x0098091c (int)    : min=0 max=2 step=1 default=1 value=1
+
+# Camera Controls
+
+#                   auto_exposure 0x009a0901 (menu)   : min=0 max=3 default=3 value=3 (Aperture Priority Mode)
+#          exposure_time_absolute 0x009a0902 (int)    : min=4 max=1250 step=1 default=156 value=156 flags=inactive
+#      exposure_dynamic_framerate 0x009a0903 (bool)   : default=0 value=1
+
+
 
 dual_cam_pub:
   ros__parameters:
-    fps: 10.0
+    fps: 30.0
     width: 640
     height: 360
-    fourcc: "MJPEG"
-
-    left:
-      device: "/dev/v4l/by-path/pci-0000:00:14.0-usb-0:1:1.0-video-index0"
-      frame_id: "left_camera_link"
-      image_topic: "/left_cam/image_raw"
-      info_topic: "/left_cam/camera_info"
-      # FROM K in CALIBRATION
-      fx: 900.0
-      fy: 900.0
-      cx: 640.0
-      cy: 360.0
-      # FROM D in CALIBRATION
-      d: [0.0, 0.0, 0.0, 0.0, 0.0]
+    fourcc: "R8G8B8"
 
     right:
-      device: "/dev/v4l/by-path/pci-0000:00:14.0-usb-0:4:1.0-video-index0"
+      device: "/dev/v4l/by-path/pci-0000:00:14.0-usb-0:1:1.0-video-index0"
       frame_id: "right_camera_link"
       image_topic: "/right_cam/image_raw"
       info_topic: "/right_cam/camera_info"
-      fx: 900.0
-      fy: 900.0
-      cx: 640.0
-      cy: 360.0
-      d: [0.0, 0.0, 0.0, 0.0, 0.0]
+      # # FROM K in CALIBRATION
+      fx: 284.0782366702515
+      fy: 289.47977471795446
+      cx: 306.29231229896874
+      cy: 104.66474548079131
+      # FROM D in CALIBRATION
+      d: [-0.04229270053091125, 0.005001624811180298, -0.0001851049593252056, -0.0010656676242260816, 0.0]
+
+    left:
+      device: "/dev/v4l/by-path/pci-0000:00:14.0-usb-0:4:1.0-video-index0"
+      frame_id: "left_camera_link"
+      image_topic: "/left_cam/image_raw"
+      info_topic: "/left_cam/camera_info"
+      fx: 383.77350755393394
+      fy: 385.57900467906546
+      cx: 312.9652569462074
+      cy: 179.50912993677576
+      d: [-0.052644504564083816, 0.01005555372223856, -0.0007714623346664548, 0.0008081317126585189, 0.0]
