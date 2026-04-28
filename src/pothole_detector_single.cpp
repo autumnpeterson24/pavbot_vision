@@ -276,7 +276,7 @@ private:
 
     const tf2::Vector3 p = o_base + s * d_base;
 
-    // sanity: forward only, and keep max range
+    // sanity! forward only, and keep max range
     if (p.x() < 0.0 || p.x() > 50.0) return false;
 
     Xb = p.x();
