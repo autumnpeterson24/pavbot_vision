@@ -1,3 +1,10 @@
+"""
+REAL PHYSICAL VISION WITH DUAL CAMERAS LAUNCH (Launches dual lane detection and the camera publishers)
+
+Launch command:
+ros2 launch physical_vision.launch.py
+"""
+
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.conditions import IfCondition
