@@ -90,7 +90,7 @@ struct Poly2 {
   double eval(double y) const { return a*y*y + b*y + c; }
 };
 
-// HELPERS ----------------------------
+// HELPERS _____________________________________
 
 static inline float clamp01(float v) {
   /* 
