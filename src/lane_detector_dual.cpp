@@ -54,7 +54,7 @@ lane_detector_dual.cpp ===========================================
     - https://github.com/georgesung/advanced_lane_detection  
   Additional Help:
     - ChatGPT assisted in the debugging during development process of algorithm
-
+=================================================================================================
 */
 
 #include <rclcpp/rclcpp.hpp>

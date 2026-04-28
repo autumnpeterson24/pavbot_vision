@@ -1,3 +1,44 @@
+/*
+pothole_detector_single.cpp ===========================================
+
+* Author: Autumn Peterson for PAVBot Capstone Team, 2026
+* Purpose: Single-camera pothole detection and ground projection algorithm.
+           Detects pothole-like regions from a monocular RGB camera using
+           color segmentation and contour filtering, then projects detections
+           into the robot base frame (base_link) for navigation and obstacle
+           avoidance.
+
+* Subscribes to:
+  - /left_cam/image_raw (sensor_msgs/msg/Image)
+  - /left_cam/camera_info (sensor_msgs/msg/CameraInfo)
+
+* Publishes:
+  - /potholes/poses (geometry_msgs/msg/PoseArray)
+      Detected pothole positions in output_frame (typically odom)
+
+  - /potholes/radii (std_msgs/msg/Float32MultiArray)
+      Radius of each detected pothole (meters)
+
+  - /potholes/markers (visualization_msgs/msg/MarkerArray)
+      RViz visualization of potholes as cylinders
+
+  - /potholes/debug_mask (sensor_msgs/msg/Image)
+      Binary segmentation mask for pothole candidates
+
+  - /potholes/debug_overlay (sensor_msgs/msg/Image)
+      Overlay image showing contours and accepted detections
+
+* Notes:
+  - Uses HSV-based segmentation to isolate bright/white pothole-like regions.
+  - Applies morphological filtering to remove noise.
+  - Uses contour geometry (area, circularity, aspect ratio) for classification.
+  - Projects detections to ground plane using camera intrinsics + TF.
+  - Includes temporal tracking to stabilize detections across frames.
+  Additional Help:
+    - ChatGPT assisted in the debugging during development process of algorithm
+===================================================================================
+*/
+
 #include <rclcpp/rclcpp.hpp>
 #include <image_transport/image_transport.hpp>
 #include <cv_bridge/cv_bridge.h>
@@ -25,7 +66,7 @@ public:
   PotholeDetectorSingle()
   : Node("pothole_detector_single")
   {
-    // Frames / topics
+    // Frames/topics
     declare_parameter<std::string>("base_frame", "base_link");
     declare_parameter<std::string>("image_topic", "/left_cam/image_raw");
     declare_parameter<std::string>("info_topic",  "/left_cam/camera_info");
@@ -48,13 +89,13 @@ public:
     declare_parameter<double>("min_circularity", 0.65);
     declare_parameter<double>("max_aspect_ratio", 1.6);
 
-    // Radius (meters)
+    // Radius(meters)
     declare_parameter<double>("pothole_radius_m", 0.3048);
 
-    // Optional: within-camera clustering distance (in base frame)
+    // Optional!! within-camera clustering distance (in base frame)
     declare_parameter<double>("cluster_dist_m", 0.35);
 
-    // Tracking / stability
+    // Tracking/stability
     declare_parameter<double>("track_match_dist", 0.75);
     declare_parameter<double>("track_alpha", 0.08);
     declare_parameter<double>("track_ttl_sec", 2.0);
@@ -121,6 +162,19 @@ private:
   };
 
   static KIntr parseK(const sensor_msgs::msg::CameraInfo& ci) {
+    /*
+      Purpose: Extracts intrinsic camera parameters required for
+              pixel-to-ground projection.
+
+      Input(s):
+        * const sensor_msgs::msg::CameraInfo& ci:
+          Camera calibration message containing intrinsic matrix.
+
+      Output(s):
+        * KIntr:
+          Struct containing fx, fy, cx, cy, image size, and validity flag.
+    */
+
     KIntr k;
     k.w = (int)ci.width; k.h = (int)ci.height;
     if (ci.k[0] <= 1e-9 || ci.k[4] <= 1e-9) return k;
@@ -140,22 +194,60 @@ private:
   };
 
   double minAreaPxAtRange(const KIntr& K, double range_m) const {
+    /*
+      Purpose: Computes a dynamic minimum contour area threshold based on
+              distance from the camera. Distant potholes appear smaller
+              in image space, so this scales the minimum detectable size.
+
+      Input(s):
+        * const KIntr& K:
+          Camera intrinsics
+
+        * double range_m:
+          Estimated distance from camera to detection (meters)
+
+      Output(s):
+        * double:
+          Minimum allowable contour area (pixels) at this range
+    */
+
     const double rp = (K.fx * pothole_r_) / std::max(0.25, range_m);
     const double Ap = M_PI * rp * rp;
     return 0.05 * Ap; // tune 0.05–0.25
   }
 
-  bool pixelToGroundBase(const KIntr& K,
-                         const rclcpp::Time& stamp,
-                         double u, double v,
-                         double& Xb, double& Yb)
-  {
+  bool pixelToGroundBase(const KIntr& K, const rclcpp::Time& stamp,double u, double v, double& Xb, double& Yb) {
+    /*
+      Purpose: Projects a 2D image pixel into the robot base frame by:
+              1. Converting pixel to a normalized camera ray
+              2. Transforming the ray into base_link using TF
+              3. Intersecting the ray with the ground plane (z = ground_z_in_base)
+
+      Input(s):
+        * const KIntr& K:
+          Camera intrinsic parameters
+
+        * const rclcpp::Time& stamp:
+          Timestamp for TF lookup
+
+        * double u, v:
+          Pixel coordinates in full image frame
+
+        * double& Xb, Yb:
+          Output variables for projected ground coordinates (meters)
+
+      Output(s):
+        * bool:
+          True if projection succeeds and yields a valid ground point,
+          false otherwise (invalid TF, ray parallel to ground, etc.)
+    */
+
     if (!K.valid) return false;
 
     const double xr = (u - K.cx) / K.fx;
     const double yr = (v - K.cy) / K.fy;
 
-    // optical -> link mapping (matching your lane node convention)
+    // optical -> link mapping (matching lane node convention)
     tf2::Vector3 dir_cam(1.0, -xr, -yr);
     dir_cam.normalize();
 
@@ -184,7 +276,7 @@ private:
 
     const tf2::Vector3 p = o_base + s * d_base;
 
-    // sanity: forward only, and keep your max range
+    // sanity: forward only, and keep max range
     if (p.x() < 0.0 || p.x() > 50.0) return false;
 
     Xb = p.x();
@@ -193,11 +285,38 @@ private:
   }
 
   static double dist2(const Pt2& a, const Pt2& b) {
+    /*
+      Purpose: Computes Euclidean distance between two 2D points.
+
+      Input(s):
+        * const Pt2& a, b:
+          Points in 2D space
+
+      Output(s):
+        * double:
+          Distance between points
+    */
     return std::hypot(a.x - b.x, a.y - b.y);
   }
 
-  std::vector<Det2D> detectInImage(const sensor_msgs::msg::Image::ConstSharedPtr& msg)
-  {
+  std::vector<Det2D> detectInImage(const sensor_msgs::msg::Image::ConstSharedPtr& msg){
+      /*
+        Purpose: Performs pothole detection on a single image using:
+                - ROI cropping for forward-looking region
+                - HSV-based white-region segmentation
+                - Morphological filtering to reduce noise
+                - Contour extraction and geometric filtering
+                - Dynamic area thresholding based on distance
+
+        Input(s):
+          * const sensor_msgs::msg::Image::ConstSharedPtr& msg:
+            Input camera image
+
+        Output(s):
+          * std::vector<Det2D>:
+            List of detected pothole candidates in image space
+            (pixel coordinates + area)
+      */
     std::vector<Det2D> out;
     if (!K_.valid) return out;
 
@@ -299,15 +418,31 @@ private:
     return out;
   }
 
-  // -------- tracking ----------
+  // tracking 
   struct Track {
-    double x{0}, y{0};           // in output_frame
+    double x{0}, y{0}; // in output_frame
     rclcpp::Time last;
     int hits{0};
     int id{0};
   };
 
   void update_track(const rclcpp::Time& now, double mx, double my) {
+    /*
+      Purpose: Updates or creates a tracked pothole using nearest-neighbor
+              association and exponential smoothing. Ensures temporal
+              stability of detections across frames.
+
+      Input(s):
+        * const rclcpp::Time& now:
+          Current timestamp
+
+        * double mx, my:
+          Measured pothole position in output_frame
+
+      Output(s):
+        * None (updates internal track list)
+    */
+
     int best_i = -1;
     double best_d = 1e9;
 
@@ -334,6 +469,18 @@ private:
   }
 
   void publish_tracks(const rclcpp::Time& stamp) {
+    /*
+      Purpose: Publishes all valid tracked potholes to ROS topics for
+              downstream navigation and visualization.
+
+      Input(s):
+        * const rclcpp::Time& stamp:
+          Timestamp for published messages
+
+      Output(s):
+        * None (publishes PoseArray, radii, and MarkerArray)
+    */
+
     geometry_msgs::msg::PoseArray poses;
     poses.header.frame_id = output_frame_;
     poses.header.stamp = stamp;
@@ -380,6 +527,27 @@ private:
   }
 
   void onImage(const sensor_msgs::msg::Image::ConstSharedPtr& msg) {
+    /*
+      Purpose: Main processing pipeline for each incoming image frame.
+              Executes detection, projection, clustering, tracking,
+              and publishing.
+
+      Pipeline:
+        1. Detect pothole candidates in image space
+        2. Project detections into base frame
+        3. Cluster nearby detections
+        4. Transform into output_frame
+        5. Update temporal tracks
+        6. Publish stabilized pothole detections
+
+      Input(s):
+        * const sensor_msgs::msg::Image::ConstSharedPtr& msg:
+          Incoming image message
+
+      Output(s):
+        * None (publishes pothole detections)
+    */
+
     auto dets = detectInImage(msg);
     if (!K_.valid) return;
 
@@ -488,6 +656,7 @@ private:
   int next_track_id_{0};
 };
 
+// MAIN ============================
 int main(int argc, char** argv) {
   rclcpp::init(argc, argv);
   rclcpp::spin(std::make_shared<PotholeDetectorSingle>());
