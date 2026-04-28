@@ -1,5 +1,32 @@
-// pothole_points_bridge.cpp
-/* CURRENT MIN DISTANCE OF ACCEPTED POTHOLE = 3m in front*/
+/*
+pothole_points_bridge.cpp ===========================================
+
+* Author: Autumn Peterson for PAVBot Capstone Team, 2026
+* Purpose: Converts tracked pothole detections from PoseArray format into
+           PointCloud2 format so the detections can be consumed by Nav2
+           costmaps or other point-cloud based obstacle layers.
+
+* Subscribes to:
+  - /potholes/poses (geometry_msgs/msg/PoseArray)
+      Stabilized pothole positions from the pothole detector
+
+* Publishes:
+  - /potholes/points (sensor_msgs/msg/PointCloud2)
+      Pothole positions represented as XYZ points for costmap integration
+
+* Notes:
+  - Each incoming pothole pose becomes one point in the output cloud.
+  - The output z value is forced to 0.0 because potholes are treated as
+    ground-plane obstacles.
+  - The published frame comes from the input message when available;
+    otherwise, the configured frame_id parameter is used.
+  - This bridge is useful when a downstream ROS/Nav2 component expects
+    PointCloud2 input instead of PoseArray input.
+===============================================================================
+*/
+
+// ***NOTE: Minimum accepted pothole distance should be handled in the detector or costmap configuration. This bridge only converts PoseArray detections into PointCloud2 format.
+
 #include <rclcpp/rclcpp.hpp>
 #include <geometry_msgs/msg/pose_array.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
@@ -59,6 +86,7 @@ private:
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr pub_;
 };
 
+// MAIN ===========================
 int main(int argc, char** argv) {
   rclcpp::init(argc, argv);
   rclcpp::spin(std::make_shared<PotholePointsBridge>());
