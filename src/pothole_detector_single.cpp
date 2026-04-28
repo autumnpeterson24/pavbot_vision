@@ -141,11 +141,11 @@ public:
       std::bind(&PotholeDetectorSingle::onImage, this, std::placeholders::_1),
       "raw");
 
-    poses_pub_   = create_publisher<geometry_msgs::msg::PoseArray>("/potholes/poses", 10);
-    radii_pub_   = create_publisher<std_msgs::msg::Float32MultiArray>("/potholes/radii", 10);
+    poses_pub_ = create_publisher<geometry_msgs::msg::PoseArray>("/potholes/poses", 10);
+    radii_pub_= create_publisher<std_msgs::msg::Float32MultiArray>("/potholes/radii", 10);
     markers_pub_ = create_publisher<visualization_msgs::msg::MarkerArray>("/potholes/markers", 10);
 
-    dbg_mask_pub_    = image_transport::create_publisher(this, "/potholes/debug_mask");
+    dbg_mask_pub_ = image_transport::create_publisher(this, "/potholes/debug_mask");
     dbg_overlay_pub_ = image_transport::create_publisher(this, "/potholes/debug_overlay");
 
     RCLCPP_INFO(get_logger(),
@@ -155,7 +155,7 @@ public:
   }
 
 private:
-  struct KIntr {
+  struct KIntr { // Camera intrinsics (You get these after calibrating the cameras)
     double fx{0}, fy{0}, cx{0}, cy{0};
     int w{0}, h{0};
     bool valid{false};
